@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { Feather, RefreshCw } from 'lucide-react';
 import type { Book, ConfigStatus, SyncStats } from './types.ts';
 import { exclusive, request } from './api.ts';
 import { CredentialSettings } from './CredentialSettings.tsx';
@@ -72,6 +72,7 @@ export function App({ username, onLogout, loggingOut }: Props) {
     <header className="topbar">
       <h1 className="brand"><button type="button" className="brand-home" aria-label="拾墨，返回书架" disabled={Boolean(openBook && noteNavigation.busy)} onClick={() => { if (canLeaveNotes()) setOpenBook(null); }}><img src={`${import.meta.env.BASE_URL}assets/brand/shimo-logo.png`} width="48" height="48" alt="" draggable={false} /><span>拾墨</span></button></h1>
       <nav className="topbar-actions" aria-label="账号">
+        <a className="about-link" href={`${import.meta.env.BASE_URL}introduction`} target="_blank" rel="noopener noreferrer"><Feather size={16} aria-hidden="true" />关于拾墨<span className="sr-only">（新窗口）</span></a>
         <AccountMenu username={username} disabled={loggingOut || Boolean(openBook && noteNavigation.busy)} needsSetup={Boolean(config && !config.wereadConfigured)}
           onSettings={() => { if (canLeaveNotes()) { setOpenBook(null); setSettingsOpen(true); } }}
           onLogout={() => { if (canLeaveNotes()) onLogout(); }} />

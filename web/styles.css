@@ -180,6 +180,7 @@ input[aria-invalid="true"]:not([type="checkbox"]) { border-color: var(--danger);
 .topbar { position: sticky; top: 0; z-index: 10; background: oklch(97.5% .006 100); display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 40px; border-bottom: 1px solid var(--line); }
 .topbar h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -.02em; white-space: nowrap; }
 .topbar-actions { display: flex; align-items: center; gap: 16px; font-size: .875rem; }
+@media (min-width: 601px) { .topbar-actions > .about-link { margin-inline-end: 16px; } }
 .account-menu { position: relative; }
 .topbar-actions .account-trigger { gap: 9px; padding: 0; min-height: 36px; }
 .account-avatar { display: inline-flex; align-items: center; justify-content: center; position: relative; width: 30px; height: 30px; border-radius: 50%; background: var(--soft); color: var(--accent); font-size: .75rem; font-weight: 600; flex-shrink: 0; }

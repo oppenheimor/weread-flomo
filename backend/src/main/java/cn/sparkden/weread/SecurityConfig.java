@@ -30,7 +30,7 @@ public class SecurityConfig {
                 || ("https".equals(uri.getScheme()) && !secure))
             throw new IllegalStateException("APP_PUBLIC_ORIGIN 必须是 HTTPS origin（并设置 COOKIE_SECURE=true），或仅用于 SSH 隧道的本机 HTTP origin");
         http.authorizeHttpRequests(auth -> auth
-            .requestMatchers("/", "/index.html", "/theme-init.js", "/assets/**", "/error", "/health", "/api/auth/session", "/api/auth/login", "/api/auth/register").permitAll()
+            .requestMatchers("/", "/introduction", "/introduction/", "/index.html", "/theme-init.js", "/assets/**", "/error", "/health", "/api/auth/session", "/api/auth/login", "/api/auth/register").permitAll()
             .anyRequest().authenticated());
         http.formLogin(form -> form.loginProcessingUrl("/api/auth/login")
             .successHandler((req,res,auth) -> json(res,200,"{\"ok\":true}"))

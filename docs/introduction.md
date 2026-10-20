@@ -24,4 +24,4 @@
 - `APP_BASE_PATH=/shimo/ npm run build`
 - `npm test`：新增 `PageControllerTest` 覆盖匿名访问、尾斜杠、`/shimo` 上下文路径和私有接口仍需登录。
 - 浏览器验证桌面及 390px 手机布局、深浅主题、图片加载和无横向溢出；介绍页不请求 `/api/`。
-- 本次没有部署生产服务。
+- 已部署并完成公网验收，版本与回滚点见 `deploy/README.md`。

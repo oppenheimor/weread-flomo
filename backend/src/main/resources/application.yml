@@ -1,0 +1,38 @@
+server:
+  address: ${BIND_ADDRESS:127.0.0.1}
+  port: ${PORT:18081}
+  forward-headers-strategy: none
+  servlet:
+    session:
+      timeout: 7d
+      cookie:
+        name: WEREAD_SESSION
+        http-only: true
+        same-site: strict
+        secure: ${COOKIE_SECURE:false}
+  error:
+    include-message: never
+    include-stacktrace: never
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://127.0.0.1:5432/weread_flomo}
+    username: ${DATABASE_USERNAME:weread_flomo}
+    password: ${DATABASE_PASSWORD:}
+    hikari:
+      maximum-pool-size: 6
+  session:
+    jdbc:
+      initialize-schema: never
+    timeout: 7d
+  flyway:
+    enabled: true
+  jackson:
+    default-property-inclusion: non_null
+logging:
+  level:
+    org.springframework.security: WARN
+app:
+  public-origin: ${APP_PUBLIC_ORIGIN:http://127.0.0.1:18081}
+  admin-username: ${ADMIN_USERNAME:}
+  admin-password: ${ADMIN_PASSWORD:}
+  credential-key: ${CREDENTIAL_ENCRYPTION_KEY:}

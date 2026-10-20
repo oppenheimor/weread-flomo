@@ -1,0 +1,30 @@
+services:
+  weread-flomo:
+    image: ${SHIMO_IMAGE:-weread-flomo:0.2.0}
+    pull_policy: never
+    container_name: shimo
+    restart: unless-stopped
+    # Linux host network：数据库保持 loopback；应用绑定私有 Docker bridge 网关，由 Nginx 代理。
+    network_mode: host
+    env_file: /srv/config/weread-flomo/service.env
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 768m
+    cpus: 1.5
+    pids_limit: 256
+    stop_grace_period: 120s
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --max-time 3 http://$${BIND_ADDRESS}:$${PORT}$${SERVER_SERVLET_CONTEXT_PATH:-}/health > /dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

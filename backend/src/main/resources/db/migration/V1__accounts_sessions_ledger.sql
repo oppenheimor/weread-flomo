@@ -1,0 +1,46 @@
+CREATE TABLE app_user (
+  id uuid PRIMARY KEY,
+  username varchar(100) NOT NULL UNIQUE,
+  password_hash varchar(100) NOT NULL,
+  singleton boolean NOT NULL DEFAULT true UNIQUE CHECK (singleton),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE delivery (
+  user_id uuid NOT NULL REFERENCES app_user(id),
+  note_id text NOT NULL,
+  content text NOT NULL,
+  status varchar(16) NOT NULL CHECK(status IN ('sending','sent','uncertain')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY(user_id,note_id)
+);
+CREATE TABLE delivery_source (
+  user_id uuid NOT NULL,
+  source_key text NOT NULL,
+  note_id text NOT NULL,
+  PRIMARY KEY(user_id,source_key),
+  FOREIGN KEY(user_id,note_id) REFERENCES delivery(user_id,note_id)
+);
+CREATE TABLE login_throttle (
+  bucket varchar(100) PRIMARY KEY,
+  started_at timestamptz NOT NULL,
+  attempts integer NOT NULL
+);
+CREATE TABLE SPRING_SESSION (
+  PRIMARY_ID CHAR(36) NOT NULL PRIMARY KEY,
+  SESSION_ID CHAR(36) NOT NULL,
+  CREATION_TIME BIGINT NOT NULL,
+  LAST_ACCESS_TIME BIGINT NOT NULL,
+  MAX_INACTIVE_INTERVAL INT NOT NULL,
+  EXPIRY_TIME BIGINT NOT NULL,
+  PRINCIPAL_NAME VARCHAR(100)
+);
+CREATE UNIQUE INDEX SPRING_SESSION_IX1 ON SPRING_SESSION (SESSION_ID);
+CREATE INDEX SPRING_SESSION_IX2 ON SPRING_SESSION (EXPIRY_TIME);
+CREATE INDEX SPRING_SESSION_IX3 ON SPRING_SESSION (PRINCIPAL_NAME);
+CREATE TABLE SPRING_SESSION_ATTRIBUTES (
+  SESSION_PRIMARY_ID CHAR(36) NOT NULL REFERENCES SPRING_SESSION(PRIMARY_ID) ON DELETE CASCADE,
+  ATTRIBUTE_NAME VARCHAR(200) NOT NULL,
+  ATTRIBUTE_BYTES BYTEA NOT NULL,
+  PRIMARY KEY(SESSION_PRIMARY_ID, ATTRIBUTE_NAME)
+);

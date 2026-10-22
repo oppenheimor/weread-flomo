@@ -18,6 +18,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PageControllerTest {
     @Autowired MockMvc mvc;
     @MockitoBean Accounts accounts;
+    @MockitoBean ShareService shares;
+
+    @Test void publicSharePagesHaveNoStoreAndInvalidLinksReturn404() throws Exception {
+        String token="a".repeat(43);
+        org.mockito.Mockito.when(shares.exists(token)).thenReturn(true);
+        mvc.perform(get("/share/"+token)).andExpect(status().isOk()).andExpect(forwardedUrl("/index.html"))
+            .andExpect(header().string("Cache-Control","no-store"))
+            .andExpect(header().string("Referrer-Policy","no-referrer"));
+        for(String path : new String[]{"/share/missing", "/share", "/share/", "/share/bad/path"})
+            mvc.perform(get(path)).andExpect(status().isNotFound()).andExpect(forwardedUrl("/index.html"));
+        mvc.perform(get("/shimo/share/"+token).contextPath("/shimo").servletPath("/share/"+token))
+            .andExpect(status().isOk()).andExpect(forwardedUrl("/index.html"));
+    }
 
     @Test void articleAndTrailingSlashArePublic() throws Exception {
         for (String path : new String[]{"/introduction", "/introduction/"}) {

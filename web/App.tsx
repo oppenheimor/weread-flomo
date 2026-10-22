@@ -5,6 +5,7 @@ import { exclusive, request } from './api.ts';
 import { CredentialSettings } from './CredentialSettings.tsx';
 import { BookCover, progressText } from './BookCover.tsx';
 import { NotesPage } from './NotesPage.tsx';
+import { ShareButton } from './ShareButton.tsx';
 import { ThemeToggle } from './ThemeToggle.tsx';
 import { AccountMenu } from './AccountMenu.tsx';
 import { StatisticsPage } from './StatisticsPage.tsx';
@@ -107,6 +108,7 @@ export function App({ username, onLogout, loggingOut }: Props) {
         <h2>先连接微信读书</h2>
         <p>连接后，有笔记的书会出现在这里；点开一本书即可挑选划线发送到 flomo。</p>
         <button type="button" className="primary" onClick={() => setSettingsOpen(true)}>连接账号</button>
+        <ShareButton />
       </section>}
 
       {config?.wereadConfigured && <>
@@ -118,6 +120,7 @@ export function App({ username, onLogout, loggingOut }: Props) {
               aria-label={loadingBooks ? '正在刷新书架' : '刷新书架'} title="刷新书架">
               <RefreshCw size={18} strokeWidth={2.25} aria-hidden="true" />
             </button>
+            <ShareButton />
             {loadingBooks && <span className="shelf-refresh-status" aria-hidden="true">刷新中…</span>}
           </div>
           <div className="shelf-tools">

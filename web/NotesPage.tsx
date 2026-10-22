@@ -4,6 +4,7 @@ import type { Book, PreviewNote, PreviewResponse } from './types.ts';
 import { exclusive, request } from './api.ts';
 import { BookCover, progressText } from './BookCover.tsx';
 import { Sheet } from './Sheet.tsx';
+import { ShareButton } from './ShareButton.tsx';
 import { EmptyState } from './EmptyState.tsx';
 import { ChapterMenu } from './ChapterMenu.tsx';
 import { Tooltip } from './Tooltip.tsx';
@@ -342,7 +343,10 @@ export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigure
   return <main className="review-page">
     <div className="review-topline">
       <button type="button" className="text-button muted" disabled={busy} onClick={close}><ArrowLeft size={16} aria-hidden="true" />书架</button>
-      <button type="button" className="text-button muted" disabled={busy} onClick={reload} aria-label="重新拉取" title="重新拉取"><RefreshCw size={16} aria-hidden="true" /></button>
+      <div className="shelf-tools">
+        <Tooltip label="重新拉取"><button type="button" className="icon-button" disabled={busy} onClick={reload} aria-label="重新拉取"><RefreshCw size={18} aria-hidden="true" /></button></Tooltip>
+        <ShareButton book={book} disabled={busy} />
+      </div>
     </div>
     <header className="review-book">
       <BookCover book={book} className="drawer-cover" />

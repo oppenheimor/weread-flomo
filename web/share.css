@@ -1,0 +1,88 @@
+.share-trigger, .share-panel-footer button, .share-enable, .shared-back, .shared-chapter-nav button, .shared-empty button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.share-trigger { white-space: nowrap; min-height: 40px; }
+.modal.share-panel { max-width: 460px; }
+.modal.share-panel .sheet-body { padding: 26px; }
+.share-panel .sheet-header h2 { outline: none; }
+.share-load-error { padding-top: 24px; }
+.share-error-title { margin: 0; color: var(--ink); font-size: .9375rem; font-weight: 550; line-height: 1.6; }
+.share-error-help { margin: 8px 0 0; color: var(--muted); font-size: .8125rem; line-height: 1.85; }
+.share-retry-actions { display: flex; justify-content: flex-end; margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line); }
+.share-retry-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 8px 14px; font-size: .8125rem; font-weight: 500; }
+.share-action-error { margin: 16px 0 0; color: var(--danger); font-size: .8125rem; line-height: 1.75; }
+.share-book-name { margin: 14px 0 0; font-weight: 550; overflow-wrap: anywhere; }
+.share-description { margin: 18px 0 24px; color: var(--muted); font-size: .9rem; line-height: 1.85; }
+.share-description span { display: block; margin-top: 6px; }
+.share-status { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: .875rem; margin-bottom: 12px; }
+.share-status .share-disable { margin-left: auto; font-size: .8125rem; font-weight: 400; }
+:root .share-status .share-disable,
+:root .share-status .share-disable:is(:hover, :active):not(:disabled) { color: var(--danger); background: transparent; border-color: transparent; box-shadow: none; }
+.share-link-row { display: flex; gap: 8px; }
+.share-link-row input { min-width: 0; flex: 1; padding: 10px 12px; font-size: .8rem; line-height: 1.5; }
+.share-enable { width: 100%; min-height: 46px; padding: 12px 18px; }
+.share-enable-hint { margin: 24px 0 0; color: var(--muted); font-size: .75rem; line-height: 1.7; text-align: left; }
+.share-panel-footer { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 16px; }
+.share-panel-footer button, .share-panel-footer a { min-height: 40px; padding: 8px 14px; white-space: nowrap; font-size: .8125rem; }
+.share-panel-footer a { display: inline-flex; justify-content: center; align-items: center; gap: 7px; color: var(--ink); border: 1px solid var(--control-line); border-radius: var(--control-radius); text-decoration: none; }
+.share-panel-footer a:hover { background: var(--soft); border-color: transparent; }
+.share-feedback { font-size: .8rem; color: var(--accent); margin: 12px 0 0; }
+.share-feedback:empty { display: none; }
+.shared-page { min-height: 100dvh; }
+.shared-header-actions { display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+.shared-product-link { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; color: var(--muted); font-size: .8125rem; text-decoration: none; white-space: nowrap; }
+.shared-product-link:hover, .shared-product-link:active { color: var(--accent); }
+.shared-brand { display: flex; align-items: center; gap: 9px; font-size: 1.25rem; font-weight: 600; }
+.shared-label { border-left: 1px solid var(--line); padding-left: 12px; margin-left: 4px; font-size: .8rem; font-weight: 400; color: var(--muted); }
+.shared-main { width: min(1120px, calc(100% - 64px)); margin: 52px auto 72px; }
+.shared-main .shelf-head { margin-bottom: 8px; }
+.shared-main .shelf-heading h1 { margin: 0; font-size: 1.65rem; }
+.shared-reading { max-width: 740px; }
+.shared-back { margin: -12px 0 22px; }
+.shared-book { display: flex; align-items: center; gap: 24px; padding-bottom: 34px; }
+.shared-book .drawer-cover { width: 88px; height: 124px; flex: 0 0 auto; }
+.shared-book h1 { margin: 8px 0 12px; font-size: 1.8rem; line-height: 1.45; overflow-wrap: anywhere; }
+.shared-book p { margin-bottom: 0; }
+.shared-eyebrow { color: var(--muted); font-size: .75rem; letter-spacing: .08em; }
+.shared-chapter { display: flex; justify-content: space-between; align-items: center; gap: 16px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 20px 0; }
+.shared-chapter h2 { flex: 1; margin: 0; min-width: 0; font-size: 1.2rem; scroll-margin-top: 24px; }
+.shared-chapter > span { white-space: nowrap; color: var(--muted); font-size: .8rem; }
+.shared-note { padding: 30px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.shared-note blockquote { margin: 0; white-space: pre-wrap; line-height: 1.95; font-size: 1.05rem; }
+.shared-thought { margin-top: 22px; padding: 18px 22px; background: var(--soft); border-radius: 10px; }
+.shared-thought:first-child { margin-top: 0; }
+.shared-thought p { margin: 8px 0 0; white-space: pre-wrap; line-height: 1.85; }
+.shared-note time { display: block; margin-top: 18px; font-size: .75rem; color: var(--muted); }
+.shared-chapter-nav { display: flex; justify-content: space-between; margin-top: 24px; }
+.shared-unavailable { text-align: center; max-width: 560px; margin: 0 auto; }
+.shared-unavailable img { display: block; width: min(100%, 420px); height: auto; aspect-ratio: 7 / 5; object-fit: cover; margin: 0 auto 26px; mix-blend-mode: multiply; }
+.shared-unavailable h1 { font-size: 1.6rem; margin: 12px 0 18px; }
+.shared-unavailable p { color: var(--muted); line-height: 1.9; }
+.shared-unavailable a { display: inline-flex; color: var(--accent); padding: 12px; margin-top: 12px; font-size: .875rem; }
+.shared-empty { text-align: center; padding: 80px 12px; color: var(--muted); }
+.shared-empty h1, .shared-empty h2 { color: var(--ink); font-size: 1.45rem; margin: 20px 0 14px; }
+.shared-empty p { line-height: 1.8; }
+.shared-empty button { margin: 24px auto 0; }
+.shared-loading { max-width: 740px; margin: auto; color: var(--muted); }
+.shared-skeleton { padding: 28px 0; border-bottom: 1px solid var(--line); }
+.shared-skeleton .skeleton-line { display: block; width: 100%; height: 14px; margin: 14px 0; }
+.shared-skeleton .skeleton-line:last-child { width: 65%; }
+:root[data-theme="dark"] .shared-unavailable img { mix-blend-mode: normal; border-radius: 24px; opacity: .85; }
+@media (max-width: 600px) {
+  .shared-header-actions { gap: 10px; }
+  .modal.share-panel { width: 100%; max-width: none; margin: auto 0 0; border-radius: 20px 20px 0 0; max-height: calc(100dvh - 24px); }
+  .modal.share-panel .sheet-body { padding: 24px 20px max(28px, env(safe-area-inset-bottom)); }
+  .shared-main { width: calc(100% - 40px); margin-top: 30px; }
+  .shared-book { gap: 18px; padding-bottom: 28px; }
+  .shared-book .drawer-cover { width: 68px; height: 96px; }
+  .shared-book h1 { font-size: 1.4rem; }
+  .shared-chapter { padding: 16px 0; }
+  .shared-chapter h2 { font-size: 1.05rem; }
+  .shared-note { padding: 24px 0; }
+  .shared-note blockquote { font-size: 1rem; }
+  .shared-thought { padding: 16px; }
+  .shared-unavailable { padding-top: 12px; }
+  .shared-unavailable h1 { font-size: 1.4rem; }
+  .shared-main .shelf-tools { width: 100%; }
+}
+@media (max-width: 380px) {
+  .shared-label { display: none; }
+}

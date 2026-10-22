@@ -53,6 +53,10 @@ public class ApiController {
         if(body.bookId()==null || body.bookId().length()>100) throw new ApiException(400,"书籍 ID 无效");
         return service.preview(accounts.id(user.getName()),body.bookId());
     }
+    public record SyncProgressRequest(List<String> ids) {}
+    @PostMapping("/api/send/progress") public Map<String,Integer> syncProgress(Principal user,@RequestBody SyncProgressRequest body) {
+        return Map.of("sent",service.sentCount(accounts.id(user.getName()),body.ids()));
+    }
     @PostMapping("/api/send") public SendResult send(Principal user,@RequestBody SendRequest body) { return service.send(accounts.id(user.getName()),body); }
     @GetMapping("/api/sync") public Map<String,Object> sync(Principal user) { return Map.of("sync",service.syncStats(accounts.id(user.getName()))); }
     @PostMapping("/api/notes/thought") public Map<String,Object> saveThought(Principal user,@RequestBody ThoughtRequest body) {

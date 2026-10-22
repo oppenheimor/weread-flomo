@@ -452,7 +452,6 @@ dialog h2[tabindex="-1"]:focus { outline: none; }
 .drawer-meta p { font-size: .8125rem; color: var(--muted); margin-top: 4px; }
 .drawer-tools { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: 8px; margin: -6px -10px -4px 0; }
 .drawer-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 40px; text-align: center; color: var(--muted); font-size: .9375rem; }
-.drawer-empty-small { padding: 48px 0; text-align: center; color: var(--muted); font-size: .875rem; }
 
 .tabs { display: flex; gap: 4px; padding: 0 20px; border-bottom: 1px solid var(--line); }
 .tab { border: 0; border-radius: 0; background: none; padding: 12px 10px; min-height: 46px; color: var(--muted); font-weight: 550; border-bottom: 2px solid transparent; margin-bottom: -1px; display: inline-flex; gap: 6px; align-items: center; }
@@ -518,6 +517,22 @@ dialog h2[tabindex="-1"]:focus { outline: none; }
 .status-dot { width: 17px; height: 17px; flex: 0 0 17px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: .6875rem; font-weight: 700; color: var(--paper); }
 .status-sent { background: var(--success); }
 .status-sent::after { content: "✓"; }
+/* Text selection is distinct from selecting a whole note for syncing. */
+.review-page :is(.note, .ai-inline-note)::selection,
+.review-page :is(.note, .ai-inline-note) *::selection {
+  background: oklch(86% .045 145);
+  color: oklch(28% .025 145);
+  text-shadow: none;
+}
+:root[data-theme="dark"] .review-page :is(.note, .ai-inline-note)::selection,
+:root[data-theme="dark"] .review-page :is(.note, .ai-inline-note) *::selection {
+  background: oklch(43% .055 145);
+  color: oklch(96% .01 145);
+}
+@media (forced-colors: active) {
+  :root .review-page :is(.note, .ai-inline-note)::selection,
+  :root .review-page :is(.note, .ai-inline-note) *::selection { background: Highlight; color: HighlightText; }
+}
 .status-uncertain, .status-sending { background: var(--warning); }
 .status-uncertain::after, .status-sending::after { content: "!"; }
 .resolve { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding: 0 18px 14px; }
@@ -529,6 +544,13 @@ dialog h2[tabindex="-1"]:focus { outline: none; }
 .bar-row { display: flex; align-items: center; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap; }
 .bar-row > p { font-size: .875rem; color: var(--muted); }
 .bar-row strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.sync-progress { display: grid; gap: 6px; min-width: 180px; max-width: 100%; margin-left: auto; }
+.sync-progress p { margin: 0; font-size: .875rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+.sync-progress progress { display: block; width: 100%; height: 4px; border: 0; border-radius: 4px; overflow: hidden; appearance: none; background: var(--line); }
+.sync-progress progress::-webkit-progress-bar { background: var(--line); }
+.sync-progress progress::-webkit-progress-value { background: var(--accent); }
+.sync-progress progress::-moz-progress-bar { background: var(--accent); }
+.sync-progress > span { color: var(--muted); font-size: .75rem; line-height: 1.5; }
 .bar-buttons { display: flex; gap: 8px; }
 .bar-buttons button { min-height: 42px; padding: 0 20px; }
 

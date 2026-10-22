@@ -37,7 +37,7 @@ export function exclusive<T>(task: () => Promise<T>): Promise<T> {
 export async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${import.meta.env.BASE_URL}${path.replace(/^\//, '')}`, {
+    response = await fetch(`${import.meta.env?.BASE_URL ?? '/'}${path.replace(/^\//, '')}`, {
       method: body === undefined ? 'GET' : 'POST',
       headers: body === undefined ? {} : { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken },
       body: body === undefined ? undefined : JSON.stringify(body), signal,

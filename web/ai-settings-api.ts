@@ -1,6 +1,6 @@
 import { request } from './api.ts';
 import type { AiProvider, AiSettings } from './ai-types.ts';
-import { clearMagpieKey, magpieGenerate, magpieModels, magpieUrl, setMagpieKey } from './magpie-transport.ts';
+import { clearMagpieKey, magpieGenerate, magpieModels, magpieUrl } from './magpie-transport.ts';
 
 export async function modelRequest<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const input = body as { id?: string; providerId?: string; apiKey?: string | null; baseUrl?: string; model?: string } | undefined;
@@ -8,10 +8,7 @@ export async function modelRequest<T>(path: string, body?: unknown, signal?: Abo
   if (!local) return request<T>(path, body, signal);
   if (path === '/api/ai/providers') {
     magpieUrl(input!.baseUrl!);
-    // Strip secrets even when adding models or selecting the default.
-    const result = await request<T>(path, { ...input, apiKey: null }, signal);
-    if (input?.apiKey) setMagpieKey(input.apiKey);
-    return result;
+    return request<T>(path, body, signal);
   }
   if (path === '/api/ai/providers/delete') {
     const result = await request<T>(path, body, signal); clearMagpieKey(); return result;

@@ -17,6 +17,9 @@ public class AiController {
     private UUID user(Principal principal) { return accounts.id(principal.getName()); }
     @GetMapping("/settings") public Settings settings(Principal principal) { return providers.settings(user(principal)); }
     @PostMapping("/providers") public Settings save(Principal principal,@RequestBody ProviderChange body) { return providers.save(user(principal),body); }
+    @PostMapping("/magpie/key") public org.springframework.http.ResponseEntity<Map<String,String>> magpieKey(Principal principal) {
+        return org.springframework.http.ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore()).body(Map.of("key",providers.magpieKey(user(principal))));
+    }
     @PostMapping("/default") public Settings choose(Principal principal,@RequestBody DefaultModel body) { return providers.setDefault(user(principal),body); }
     public record ProviderId(String id) {}
     @PostMapping("/providers/delete") public Settings delete(Principal principal,@RequestBody ProviderId body) { providers.delete(user(principal),body.id()); return providers.settings(user(principal)); }

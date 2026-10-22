@@ -102,6 +102,8 @@ public class NotebookService {
             return statuses(user,preview.data().notes());
         });
     }
+    // Read-only progress must not wait for the batch's exclusive send lock.
+    public int sentCount(UUID user,List<String> ids) { return ledger.sentCount(user,ids); }
     public SendResult send(UUID user,SendRequest request) {
         return exclusive(() -> sendLocked(user,request));
     }

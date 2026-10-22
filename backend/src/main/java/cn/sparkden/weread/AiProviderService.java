@@ -26,18 +26,23 @@ public class AiProviderService {
         if(change.id()==null || !change.id().matches("[a-zA-Z0-9_-]{1,80}") || change.name()==null || change.name().isBlank() || change.name().length()>120) throw new ApiException(400,"服务商名称或 ID 无效");
         if(change.protocol()==null || !Set.of("openai","anthropic","google").contains(change.protocol())) throw new ApiException(400,"请选择接口协议");
         boolean local="magpie".equals(change.id());
-        if(local && (!"openai".equals(change.protocol()) || change.apiKey()!=null && !change.apiKey().isBlank())) throw new ApiException(400,"Magpie 密钥只能保存在浏览器，不得上传服务器");
+        if(local && !"openai".equals(change.protocol())) throw new ApiException(400,"Magpie 必须使用 OpenAI 兼容协议");
         String base=local?browserUrl(change.baseUrl()):AiTransport.validUrl(change.baseUrl()).toString().replaceAll("/+$","");
         if(change.apiKey()!=null && (change.apiKey().length()>4096 || change.apiKey().chars().anyMatch(c -> c<32 || c==127))) throw new ApiException(400,"API Key 格式无效");
         var ids=change.models()==null?List.<String>of():change.models();
         if(ids.size()>500 || ids.stream().anyMatch(m -> !validModel(m))) throw new ApiException(400,"模型 ID 无效或数量过多");
         String key=change.apiKey()==null?"":change.apiKey().strip();
         var previous=db.queryForList("SELECT ciphertext FROM ai_provider WHERE user_id=? AND id=?",String.class,user,change.id());
-        String ciphertext=local?"":!key.isEmpty()?cipher.encrypt(user,"ai:"+change.id(),key):previous.isEmpty()?"":previous.getFirst();
+        String ciphertext=!key.isEmpty()?cipher.encrypt(user,"ai:"+change.id(),key):previous.isEmpty()?"":previous.getFirst();
         try {
             db.update("INSERT INTO ai_provider(user_id,id,name,protocol,base_url,ciphertext,models) VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id,id) DO UPDATE SET name=EXCLUDED.name,protocol=EXCLUDED.protocol,base_url=EXCLUDED.base_url,ciphertext=EXCLUDED.ciphertext,models=EXCLUDED.models",user,change.id(),change.name().strip(),change.protocol(),base,ciphertext,mapper.writeValueAsString(new LinkedHashSet<>(ids)));
         } catch(com.fasterxml.jackson.core.JsonProcessingException e) { throw new IllegalStateException(e); }
         return settings(user);
+    }
+    public String magpieKey(UUID user) {
+        var rows=db.queryForList("SELECT ciphertext FROM ai_provider WHERE user_id=? AND id='magpie'",String.class,user);
+        if(rows.isEmpty() || rows.getFirst().isEmpty()) throw new ApiException(400,"请先保存 Magpie 网关密钥");
+        return cipher.decrypt(user,"ai:magpie",rows.getFirst());
     }
     public static boolean validModel(String id) { return id!=null && id.matches("[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}") && !id.contains(".."); }
     @Transactional public Settings setDefault(UUID user,DefaultModel selection) {

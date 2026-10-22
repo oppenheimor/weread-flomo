@@ -1,11 +1,8 @@
-// The gateway key lives only in this tab's memory, never in server requests or storage.
-let gatewayKey = '';
-export function clearMagpieKey() { gatewayKey = ''; }
-export function hasMagpieKey() { return !!gatewayKey; }
-export function setMagpieKey(key: string) {
-  if (key.length > 4096 || /[\x00-\x20\x7f]/.test(key)) throw new Error('网关 key 格式无效');
-  gatewayKey = key;
-}
+import { request } from './api.ts';
+
+// No browser persistence or shared key cache; invalidate pending reads on account changes.
+let accountVersion = 0;
+export function clearMagpieKey() { accountVersion++; }
 export function magpieUrl(base: string) {
   const url = new URL(base);
   if (!['http:', 'https:'].includes(url.protocol) || !['localhost', '127.0.0.1'].includes(url.hostname) || url.username || url.password || url.search || url.hash || url.pathname.replace(/\/+$/, '') !== '/v1') {
@@ -15,6 +12,9 @@ export function magpieUrl(base: string) {
 }
 async function call(base: string, path: string, body?: unknown, signal?: AbortSignal) {
   const url = magpieUrl(base);
+  const version = accountVersion;
+  const { key: gatewayKey } = await request<{ key: string }>('/api/ai/magpie/key', {}, signal);
+  if (version !== accountVersion) throw new Error('账号状态已变化，请重新操作');
   if (!gatewayKey) throw new Error('请先在模型设置中填写并保存 Magpie 网关密钥');
   let response: Response;
   try {

@@ -145,7 +145,7 @@ export function App({ username, onLogout, loggingOut }: Props) {
                     : count ? <span className="badge" aria-hidden="true">{count > 99 ? '99+' : count}</span> : null}
                 </span>
                 <span className="shelf-title">{book.title}</span>
-                {(!count || uncertain > 0) && meta && <span className={`shelf-meta ${uncertain ? 'warn' : ''}`}>{meta}</span>}
+                {(!count || uncertain > 0) && meta && meta !== '无划线或想法' && meta !== '已同步' && <span className={`shelf-meta ${uncertain ? 'warn' : ''}`}>{meta}</span>}
               </button>
             </li>;
           })}

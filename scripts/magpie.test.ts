@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { magpieUrl, readMagpieStream, magpieModels, magpieGenerate, clearMagpieKey, setMagpieKey } from '../web/magpie-transport.ts';
+import { magpieUrl, readMagpieStream, magpieModels, magpieGenerate, clearMagpieKey } from '../web/magpie-transport.ts';
 import { runBrowserJob, type BrowserJob } from '../web/ai-request.ts';
 
 const job: BrowserJob = { mode: 'browser', jobId: 'job', bookId: 'book', chapterId: 'chapter', baseUrl: 'http://localhost:3425/v1', model: 'provider/model', system: 'system', prompt: 'prompt', chapter: { state: 'running', notes: [], error: '' } };
@@ -25,21 +25,23 @@ test('browser gateway requests require a key before discovery or generation', as
     clearMagpieKey();
     globalThis.fetch = async (url, options) => {
       requests++;
-      assert.equal(new Headers(options?.headers).has('Authorization'), false);
-      assert.equal(options?.credentials, 'omit');
-      if (String(url).endsWith('/models')) return Response.json({ data: [{ id: 'provider/model' }] });
-      return stream('data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
+      assert.equal(url, '/api/ai/magpie/key');
+      assert.equal(options?.method, 'POST');
+      return Response.json({ key: '' });
     };
     await assert.rejects(magpieModels(job.baseUrl), /填写并保存 Magpie 网关密钥/);
     await assert.rejects(magpieGenerate(job.baseUrl, job.model, 'test', 'test'), /填写并保存 Magpie 网关密钥/);
-    assert.equal(requests, 0);
+    assert.equal(requests, 2);
   } finally { clearMagpieKey(); globalThis.fetch = original; }
 });
-test('models request omits cookies, rejects redirects, and sends the memory-only gateway key', async () => {
+test('models request retrieves the saved key and sends it only to the loopback gateway', async () => {
   const original = globalThis.fetch;
   try {
-    setMagpieKey('test-gateway-key');
     globalThis.fetch = async (url, options) => {
+      if (url === '/api/ai/magpie/key') {
+        assert.equal(options?.method, 'POST');
+        return Response.json({ key: 'test-gateway-key' });
+      }
       assert.equal(url, job.baseUrl + '/models');
       assert.equal(options?.credentials, 'omit'); assert.equal(options?.redirect, 'error');
       assert.equal((options?.headers as Record<string, string>).Authorization, 'Bearer test-gateway-key');

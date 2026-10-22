@@ -4,6 +4,9 @@ import type { Book, PreviewNote, PreviewResponse } from './types.ts';
 import { exclusive, request } from './api.ts';
 import { BookCover, progressText } from './BookCover.tsx';
 import { Sheet } from './Sheet.tsx';
+import { EmptyState } from './EmptyState.tsx';
+import { ChapterMenu } from './ChapterMenu.tsx';
+import { useSyncProgress } from './useSyncProgress.ts';
 import { AiChapterNotes } from './AiCompanion.tsx';
 import { AiWriting } from './AiWriting.tsx';
 import { startChapterAi } from './ai-request.ts';
@@ -36,6 +39,8 @@ export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigure
   const [tab, setTab] = useState<Tab>('ready');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [phase, setPhase] = useState<'idle' | 'sending'>('idle');
+  const [syncIds, setSyncIds] = useState<string[] | null>(null);
+  const syncProgress = useSyncProgress(syncIds);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [actionError, setActionError] = useState('');
   const [resolving, setResolving] = useState<{ id: string; delivered: boolean } | null>(null);
@@ -58,7 +63,12 @@ export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigure
   useEffect(() => { setDeepThinking(false); }, [chapterId, aiThinkingControl]);
   const [aiChapter, setAiChapter] = useState<AiChapter | null>(null);
   const [savedChapters, setSavedChapters] = useState<PreviewNote['chapter'][]>([]);
-  useEffect(() => { const controller = new AbortController(); request<PreviewNote['chapter'][]>(`/api/ai/chapters?bookId=${encodeURIComponent(book.bookId)}`, undefined, controller.signal).then(setSavedChapters).catch(() => {}); return () => controller.abort(); }, [book.bookId]);
+  const positionWrites = useRef<Promise<unknown>>(Promise.resolve());
+  function rememberChapter(id: string) {
+    positionWrites.current = positionWrites.current.catch(() => {}).then(() => request('/api/book-position', { bookId: book.bookId, chapterId: id })).catch(() => {
+      if (alive.current) setActionError('章节位置保存失败，下次打开可能无法恢复。');
+    });
+  }
   const [aiSelected, setAiSelected] = useState<string[]>([]);
   const [aiDirty, setAiDirty] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
@@ -127,14 +137,14 @@ export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigure
   function aiChanged(value: AiChapter) { setAiChapter(value); void refreshOriginals(); }
   async function sendAi() {
     if (chapterId === null || !aiSelected.length || aiRunning) return;
-    setAiBusy(true); setActionError('');
+    setAiBusy(true); setActionError(''); setSyncIds([...aiSelected]);
     try {
       const result = await exclusive(() => request<{ chapter: AiChapter; error: string }>('/api/ai/send', { bookId: book.bookId, chapterId, ids: aiSelected, confirmed: true }));
       if (!alive.current) return;
       setAiChapter(result.chapter); setAiSelected(old => old.filter(id => result.chapter.notes.some(n => n.id === id && n.status === 'ready'))); setActionError(result.error);
       await refreshOriginals();
     } catch(e) { if (alive.current) { setActionError(message(e)); setAiRefresh(v => v + 1); } }
-    finally { if (alive.current) setAiBusy(false); }
+    finally { if (alive.current) { setAiBusy(false); setSyncIds(null); } }
   }
   const heading = useRef<HTMLHeadingElement>(null);
   const content = useRef<HTMLElement>(null);
@@ -214,14 +224,20 @@ export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigure
   async function load() {
     setLoading(true); setLoadError(''); setOutcome(null); setActionError(''); setPhase('idle');
     try {
-      const result = await exclusive(() => request<PreviewResponse>('/api/preview', { bookId: book.bookId }));
+      const [result, position, storedChapters] = await Promise.all([
+        exclusive(() => request<PreviewResponse>('/api/preview', { bookId: book.bookId })),
+        positionWrites.current.then(() => request<{ chapterId: string }>(`/api/book-position?bookId=${encodeURIComponent(book.bookId)}`)).catch(() => null),
+        request<PreviewNote['chapter'][]>(`/api/ai/chapters?bookId=${encodeURIComponent(book.bookId)}`).catch(() => []),
+      ]);
       if (!alive.current) return;
-      setPreview(result);
+      setPreview(result); setSavedChapters(storedChapters);
       const ready = result.notes.filter(n => n.status === 'ready');
       setSelected(new Set());
       const initialTab: Tab = result.notes.some(n => n.status === 'uncertain' || n.status === 'sending') ? 'uncertain' : ready.length || !result.notes.length ? 'ready' : 'sent';
       setTab(initialTab);
-      setChapterId(result.notes.find(n => initialTab === 'uncertain' ? n.status === 'uncertain' || n.status === 'sending' : n.status === initialTab)?.chapter.id ?? null);
+      const remembered = position?.chapterId;
+      const exists = remembered && (result.notes.some(n => n.chapter.id === remembered) || storedChapters.some(c => c.id === remembered));
+      setChapterId(exists ? remembered : result.notes.find(n => initialTab === 'uncertain' ? n.status === 'uncertain' || n.status === 'sending' : n.status === initialTab)?.chapter.id ?? null);
     } catch (e) { if (alive.current) setLoadError(message(e)); }
     finally { if (alive.current) setLoading(false); }
   }
@@ -239,6 +255,8 @@ export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigure
   const chapter = chapters[chapterIndex];
   const visible = groups[tab].filter(n => n.chapter.id === chapter?.id);
   useEffect(() => { if (preview) onCounted(book.bookId, preview.notes.filter(n => n.status === 'ready').reduce((sum, n) => sum + n.sources, 0)); }, [preview]);
+  const nextReadyChapterIndex = chapters.findIndex((c, index) => index > chapterIndex && groups.ready.some(n => n.chapter.id === c.id));
+  const otherReadyChapterIndex = nextReadyChapterIndex >= 0 ? nextReadyChapterIndex : chapters.findIndex(c => c.id !== chapter?.id && groups.ready.some(n => n.chapter.id === c.id));
   const sending = phase === 'sending';
   const busy = loading || sending || resolveBusy || deleteBusy || editing !== null || aiBusy;
   const aiVisible = aiChapter?.notes.filter(n => tab === 'uncertain' ? n.status === 'uncertain' || n.status === 'sending' : n.status === tab) ?? [];
@@ -257,11 +275,14 @@ export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigure
   function changeTab(next: Tab) {
     if (!discardAiEdit()) return;
     setTab(next); setResolving(null);
-    if (!aiView && !groups[next].some(n => n.chapter.id === chapter?.id)) setChapterId(groups[next][0]?.chapter.id ?? null);
+    if (!aiView && !groups[next].some(n => n.chapter.id === chapter?.id)) {
+      const id = groups[next][0]?.chapter.id;
+      if (id) { setChapterId(id); rememberChapter(id); }
+    }
   }
   function changeChapter(index: number) {
     if (!discardAiEdit()) return;
-    setChapterId(chapters[index].id); setResolving(null);
+    setChapterId(chapters[index].id); rememberChapter(chapters[index].id); setResolving(null);
   }
   function reload() {
     if (discardAiEdit() && (!selected.size || window.confirm('重新拉取会清空已选笔记，继续？'))) { void load(); setAiRefresh(v => v + 1); }
@@ -278,7 +299,7 @@ export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigure
   async function send() {
     if (!preview || !selected.size) return;
     const ids = groups.ready.filter(n => selected.has(n.id)).map(n => n.id);
-    setPhase('sending'); setActionError(''); setOutcome(null);
+    setPhase('sending'); setActionError(''); setOutcome(null); setSyncIds(ids);
     try {
       const result = await exclusive(() => request<{ notes: PreviewNote[]; deliveryError?: string }>('/api/send', { previewId: preview.previewId, ids, confirmed: true }));
       if (!alive.current) return;
@@ -293,7 +314,7 @@ export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigure
       });
       onSynced(); setAiRefresh(v => v + 1);
     } catch (e) { if (alive.current) setActionError(message(e)); }
-    finally { if (alive.current) setPhase('idle'); }
+    finally { if (alive.current) { setPhase('idle'); setSyncIds(null); } }
   }
   async function resolve() {
     if (!preview || !resolving) return;
@@ -373,7 +394,7 @@ export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigure
 
       <section ref={content} className="review-content" onScroll={handleScroll} onWheel={e => { if (e.deltaY < 0) stopFollowing(); }} onKeyDown={e => { if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) stopFollowing(); }} aria-busy={loading}>
         {chapter && <header className="chapter-heading">
-          <div className="chapter-identity"><h2 ref={heading} tabIndex={-1}>{chapter.title}</h2><div className="chapter-meta"><span className="chapter-progress">第 {chapterIndex + 1} / {chapters.length} 章</span>{!aiRunning && <><span className="chapter-meta-dot" aria-hidden="true">·</span><span className="chapter-count">{aiView ? aiVisible.length : visible.length} 条{aiView ? '结果' : '笔记'}</span></>}</div></div>
+          <div className="chapter-identity"><h2 ref={heading} tabIndex={-1}><ChapterMenu chapters={chapters} currentId={chapter.id} disabled={busy} onChange={changeChapter} /></h2></div>
           <div className="chapter-tools">
             {aiChapter && (aiChapter.notes.length > 0 || aiRunning || aiChapter.state === 'failed') ? <div className="chapter-view-switch" role="group" aria-label="笔记视图">
               <button type="button" aria-pressed={!aiView} disabled={busy} onClick={() => changeAiView(false)}>原始笔记</button>
@@ -395,11 +416,27 @@ export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigure
         {!aiView && <>
         {preview.warnings.length > 0 && <div className="notice" role="status">{preview.warnings.join('；')}。数量以下方列表为准。</div>}
         {tab === 'uncertain' && <p className="hint uncertain-hint">这些笔记发送时没有收到 flomo 的成功回执，可能已经写入。请到 flomo 搜索确认后选择处理方式，系统不会自动重发。</p>}
-        {!visible.length && <p className="drawer-empty-small">{{
-          ready: notes.length ? '本章没有未同步笔记' : '暂无划线或想法',
-          sent: '本章暂无已同步笔记',
-          uncertain: '本章没有需要核对的笔记',
-        }[tab]}</p>}
+        {!loading && !loadError && !visible.length && <EmptyState
+          title={{
+            ready: notes.length ? '本章没有未同步笔记' : '暂无划线或想法',
+            sent: '本章暂无已同步笔记',
+            uncertain: '本章没有需要核对的笔记',
+          }[tab]}
+          description={{
+            ready: !notes.length
+              ? '在微信读书中留下划线或想法，再回来重新拉取。'
+              : otherReadyChapterIndex >= 0
+                ? '其他章节还有摘录待同步，去看看下一处收获。'
+                : '可以查看已同步的摘录；有新划线时，再重新拉取。',
+            sent: '在「未同步」中选择笔记，同步 flomo 成功后会显示在这里。',
+            uncertain: '发送结果不确定的笔记会显示在这里，供你手动核对。',
+          }[tab]}
+          action={tab === 'ready' && otherReadyChapterIndex >= 0
+            ? <button type="button" className="text-button" disabled={busy} onClick={() => changeChapter(otherReadyChapterIndex)}>查看待同步章节<ChevronRight size={14} aria-hidden="true" /></button>
+            : tab === 'ready' && groups.sent.some(n => n.chapter.id === chapter?.id)
+              ? <button type="button" className="text-button" disabled={busy} onClick={() => changeTab('sent')}>查看本章已同步笔记<ChevronRight size={14} aria-hidden="true" /></button>
+              : undefined}
+        />}
 
         <ol className="notes">
           {visible.map((note, index) => {
@@ -456,12 +493,16 @@ export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigure
                 <button type="button" className="text-button" disabled={busy || chapterIndex === 0} onClick={() => changeChapter(chapterIndex - 1)}><ChevronLeft size={16} aria-hidden="true" />上一章</button>
                 <button type="button" className="text-button" disabled={busy || chapterIndex >= chapters.length - 1} onClick={() => changeChapter(chapterIndex + 1)}>下一章<ChevronRight size={16} aria-hidden="true" /></button>
               </nav>
-              <p>{aiView ? aiBusy ? '正在处理，请勿重复操作…' : <>已选 <strong>{aiSelected.length}</strong> 条{!sendingEnabled && <> · <button type="button" className="link-button" onClick={() => { if (discardAiEdit()) onOpenSettings(); }}>配置 flomo</button></>}</> : sending ? `正在发送 ${selected.size} 条，请勿关闭页面…`
+              {syncIds ? <div className="sync-progress">
+                <p role="status">已同步 {syncProgress.sent} / {syncIds.length} 条</p>
+                <progress value={syncProgress.sent} max={syncIds.length} aria-label="同步到 flomo 的进度" />
+                <span>{syncProgress.delayed ? '进度暂时无法更新，请勿重复同步' : '请勿关闭页面或重复操作'}</span>
+              </div> : <p>{aiView ? aiBusy ? '正在处理，请勿重复操作…' : <>已选 <strong>{aiSelected.length}</strong> 条{!sendingEnabled && <> · <button type="button" className="link-button" onClick={() => { if (discardAiEdit()) onOpenSettings(); }}>配置 flomo</button></>}</> : sending ? `正在发送 ${selected.size} 条，请勿关闭页面…`
                 : !sendingEnabled ? <>还没连接 flomo，<button type="button" className="link-button" onClick={() => { if (!selected.size || window.confirm('前往设置会清空已选笔记，继续？')) onOpenSettings(); }}>去设置</button></>
                 : tab === 'ready' ? <>已选 <strong>{selected.size}</strong> 条{selected.size >= LIMIT && '（单次上限 100 条）'}</>
-                : `未同步 ${groups.ready.length} 条`}</p>
+                : null}</p>}
               <div className="bar-buttons">
-                <button type="button" className="primary" disabled={busy || !sendingEnabled || (aiView ? aiRunning || aiDirty || !aiSelected.length : !selected.size)} onClick={aiView ? sendAi : send}>{aiView ? `同步到 flomo${aiSelected.length ? ` · ${aiSelected.length}` : ''}` : sending ? '发送中…' : `发送到 flomo${selected.size ? ` · ${selected.size}` : ''}`}</button>
+                <button type="button" className="primary" disabled={busy || !sendingEnabled || (aiView ? aiRunning || aiDirty || !aiSelected.length : !selected.size)} onClick={aiView ? sendAi : send}>{syncIds ? '同步中…' : aiView ? `同步到 flomo${aiSelected.length ? ` · ${aiSelected.length}` : ''}` : sending ? '同步中…' : `同步到 flomo${selected.size ? ` · ${selected.size}` : ''}`}</button>
               </div>
             </div>
       </footer>

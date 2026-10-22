@@ -46,7 +46,7 @@ AI HTTP 客户端独立于微信读书/flomo 客户端：不跟随重定向，�
 模型设置的「本地」分组内提供 Magpie 预设，默认地址 `http://localhost:3425/v1`（也可使用 `http://127.0.0.1:3425/v1`）。**Magpie 的模型列表、测试和生成全部由用户浏览器直接调用，不经过云端服务器。** 其他服务商保持后端调用。
 
 1. 用户启动本机 Magpie 并配置上游。在 Settings → Network and sharing → Web pages 中添加本网站的准确 origin（协议、域名、端口，不含路径）。网页调用须填写 Gateway key；本机 Agent 的免认证规则不适用于网页。浏览器询问本地网络权限时允许；不支持此权限/跨域连接的浏览器将显示连接提示，不会降级为服务器代理。
-2. 在模型设置中填写网关密钥，保存、获取模型、测试并设为默认。已填写的 key 可用「清除密钥」移除；清除后需重新填写才能连接。key 只留在当前标签页内存，不写 localStorage、sessionStorage 或服务器；刷新、退出登录及登录失效会清除。服务端拒绝上传 Magpie key，V9 迁移清除旧版已保存的该凭证。
+2. 在模型设置中填写网关密钥，保存、获取模型、测试并设为默认。密钥按账号加密存入 ai_provider，刷新后无需重填；留空保存保留旧密钥，移除服务商配置同时删除密钥。浏览器每次调用网关前，经登录、Origin 和 CSRF 校验的 POST /api/ai/magpie/key 接口读取本账号密钥，响应禁止缓存，不写 localStorage 或 sessionStorage，也不在前端共享缓存。普通设置接口仅返回 hasKey，不返回密钥。历史 V9 迁移曾清除旧密钥，受影响用户需重新填写保存一次；V9 文件保持不变，不重新执行。
 3. 模型 ID 保留 `provider/model`、`auto/model` 或 `group/分组名`。只允许 localhost / 127.0.0.1 的 `/v1` 地址；请求禁带 Cookie、不跟随重定向。CSP 仅额外开放这两个回环主机，不放开任意公网地址。
 4. **无需配置 AI_TRUSTED_HOSTS、开启局域网共享或暴露端口。** localhost 在此专指浏览器所在电脑。Magpie 的 Web pages 授权和浏览器本地网络许可仍须由用户设置。
 

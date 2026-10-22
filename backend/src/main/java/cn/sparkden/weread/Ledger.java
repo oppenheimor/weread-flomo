@@ -58,6 +58,11 @@ public class Ledger {
             else { db.update("DELETE FROM delivery_source WHERE user_id=? AND note_id=?",user,id); db.update("DELETE FROM delivery WHERE user_id=? AND note_id=? AND status='uncertain'",user,id); }
         }
     }
+    public int sentCount(UUID user,List<String> ids) {
+        if(ids==null || ids.isEmpty() || ids.size()>100 || ids.stream().anyMatch(Objects::isNull) || new HashSet<>(ids).size()!=ids.size()) throw new ApiException(400,"请选择 1 到 100 条不重复的笔记");
+        var args=new ArrayList<Object>(); args.add(user); args.addAll(ids);
+        return db.queryForObject("SELECT count(*) FROM delivery WHERE user_id=? AND status='sent' AND note_id IN ("+String.join(",",Collections.nCopies(ids.size(),"?"))+")",Integer.class,args.toArray());
+    }
     public String ownStatus(UUID user,String id) {
         var values=db.queryForList("SELECT status FROM delivery WHERE user_id=? AND note_id=?",String.class,user,id);
         return values.isEmpty()?"ready":values.getFirst();

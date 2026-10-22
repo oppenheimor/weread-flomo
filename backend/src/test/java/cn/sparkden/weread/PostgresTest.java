@@ -33,6 +33,7 @@ class PostgresTest {
     @Autowired LedgerImport importer;
     @Autowired Credentials credentials;
     @Autowired AiProviderService aiProviders;
+    @Autowired BookPositionController positions;
     @Autowired org.springframework.transaction.support.TransactionTemplate transactions;
     private UUID aiUser() {
         UUID user=UUID.randomUUID();
@@ -59,6 +60,18 @@ class PostgresTest {
         for(int i=0;i<100;i++) { var state=service.state(user,"b","c"); if(!state.state().equals("running")) return state; Thread.sleep(20); }
         fail("AI job did not complete"); return null;
     }
+    @Test void bookPositionsPersistIndependentlyByAccountAndBook() {
+        UUID user=aiUser(),other=aiUser();
+        java.security.Principal owner=() -> "ai-"+user, stranger=() -> "ai-"+other;
+        assertEquals("",positions.get(owner,"book-a").get("chapterId"));
+        positions.save(owner,new BookPositionController.Position("book-a","chapter-2"));
+        positions.save(owner,new BookPositionController.Position("book-b","chapter-5"));
+        positions.save(owner,new BookPositionController.Position("book-a","chapter-3"));
+        assertEquals("chapter-3",positions.get(owner,"book-a").get("chapterId"));
+        assertEquals("chapter-5",positions.get(owner,"book-b").get("chapterId"));
+        assertEquals("",positions.get(stranger,"book-a").get("chapterId"));
+        assertThrows(ApiException.class,() -> positions.save(owner,new BookPositionController.Position("book-a","")));
+    }
     @Test void aiCredentialsAreEncryptedIsolatedAndDefaultIsExplicit() {
         UUID user=aiUser(),other=aiUser(); aiConfig(user);
         var state=aiProviders.settings(user);
@@ -72,10 +85,14 @@ class PostgresTest {
     }
     @Test void browserMagpieJobsValidateIsolateExpireAndNeverUseServerTransport() {
         UUID user=aiUser(),other=aiUser();
-        assertThrows(ApiException.class,() -> aiProviders.save(user,new AiModels.ProviderChange("magpie","Magpie","openai","http://localhost:3425/v1","must-not-upload",List.of())));
+        aiProviders.save(user,new AiModels.ProviderChange("magpie","Magpie","openai","http://localhost:3425/v1","saved-gateway-key",List.of()));
+        assertEquals("saved-gateway-key",aiProviders.magpieKey(user));
+        assertThrows(ApiException.class,() -> aiProviders.magpieKey(other));
+        assertNotEquals("saved-gateway-key",db.queryForObject("SELECT ciphertext FROM ai_provider WHERE user_id=? AND id='magpie'",String.class,user));
         aiProviders.save(user,new AiModels.ProviderChange("magpie","Magpie","openai","http://localhost:3425/v1",null,List.of("provider/model")));
         aiProviders.setDefault(user,new AiModels.DefaultModel("magpie","provider/model"));
-        assertFalse(aiProviders.settings(user).providers().getFirst().hasKey());
+        assertTrue(aiProviders.settings(user).providers().getFirst().hasKey());
+        assertEquals("saved-gateway-key",aiProviders.magpieKey(user));
         assertThrows(ApiException.class,() -> aiProviders.defaultConnection(user));
         var transport=org.mockito.Mockito.mock(AiTransport.class);
         var service=fixtureAi(transport,org.mockito.Mockito.mock(RemoteApis.class));
@@ -127,13 +144,19 @@ class PostgresTest {
         UUID user=aiUser(); var sources=aiSnapshot().notes();
         ledger.reserve(user,sources.getFirst()); ledger.finish(user,sources.getFirst().id(),"sent");
         ledger.reserveOrganized(user,"ai:test","整理正文",sources);
+        assertEquals(1,ledger.sentCount(user,List.of(sources.getFirst().id(),"ai:test")));
+        assertEquals(0,ledger.sentCount(aiUser(),List.of(sources.getFirst().id(),"ai:test")));
+        assertThrows(ApiException.class,() -> ledger.sentCount(user,List.of()));
+        assertThrows(ApiException.class,() -> ledger.sentCount(user,List.of("ai:test","ai:test")));
         assertEquals("sent",ledger.status(user,sources.getFirst()));
         assertEquals("sending",ledger.status(user,sources.get(1)));
         ledger.finish(user,"ai:test","uncertain");
+        assertEquals(1,ledger.sentCount(user,List.of(sources.getFirst().id(),"ai:test")));
         assertThrows(ApiException.class,() -> ledger.reserve(user,sources.get(1)));
         ledger.resolveOrganized(user,"ai:test",false);
         assertEquals("sent",ledger.status(user,sources.getFirst())); assertEquals("ready",ledger.status(user,sources.get(1)));
         ledger.reserveOrganized(user,"ai:test","整理正文",sources); ledger.finish(user,"ai:test","sent");
+        assertEquals(2,ledger.sentCount(user,List.of(sources.getFirst().id(),"ai:test")));
         assertEquals("sent",ledger.status(user,sources.get(1)));
         assertThrows(ApiException.class,() -> ledger.reserveOrganized(user,"ai:test","重复",sources));
         assertEquals("ready",ledger.ownStatus(aiUser(),"ai:test"));

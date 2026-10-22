@@ -50,4 +50,4 @@ SHARE_UI_DIST=/tmp/shimo-intro-images SHARE_UI_INTRODUCTION=1 node scripts/share
 - `node --experimental-strip-types --test scripts/*.test.ts`（18 项）。
 - 独立预览服务验证匿名访问、正文图片加载及原图链接、桌面和 390px 手机布局、深浅主题、无横向溢出、无 `/api/` 请求。
 - 为避免并行开发覆盖 `dist/`，截图及验收构建使用独立 `/tmp/` 输出目录。
-- 初版已部署并完成公网验收，版本与回滚点见 `deploy/README.md`。本次功能介绍和截图更新未部署。
+- 本次功能介绍和截图已随 `af99127` 部署。公网介绍页与尾斜杠均 200，7 张正文截图与本地逐字节一致；版本、验证范围及回滚点见 `deploy/README.md`。

@@ -6,6 +6,7 @@ import { BookCover, progressText } from './BookCover.tsx';
 import { Sheet } from './Sheet.tsx';
 import { EmptyState } from './EmptyState.tsx';
 import { ChapterMenu } from './ChapterMenu.tsx';
+import { Tooltip } from './Tooltip.tsx';
 import { useSyncProgress } from './useSyncProgress.ts';
 import { AiChapterNotes } from './AiCompanion.tsx';
 import { AiWriting } from './AiWriting.tsx';
@@ -400,7 +401,7 @@ export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigure
               <button type="button" aria-pressed={!aiView} disabled={busy} onClick={() => changeAiView(false)}>原始笔记</button>
               <div className={`chapter-ai-view${aiView ? ' is-active' : ''}`}>
                 <button type="button" aria-pressed={aiView} disabled={busy} onClick={() => changeAiView(true)}><Sparkles size={14} aria-hidden="true" />AI 整理{aiRunning && <span className="chapter-running-dot" aria-label="正在整理" />}</button>
-                {aiView && aiChapter.state === 'ready' && <button type="button" className="chapter-regenerate" aria-label="重新整理本章" title="重新整理本章" disabled={busy} onClick={() => void startAi(true)}><RefreshCw size={14} aria-hidden="true" /></button>}
+                {aiView && aiChapter.state === 'ready' && <Tooltip label="重新生成"><button type="button" className="chapter-regenerate" aria-label="重新生成" disabled={busy} onClick={() => void startAi(true)}><RefreshCw size={14} aria-hidden="true" /></button></Tooltip>}
               </div>
             </div> : <>
               {aiThinkingControl && <select className="ai-mode-select" aria-label="整理模式" value={deepThinking ? 'deep' : 'fast'} disabled={busy} onChange={e => setDeepThinking(e.target.value === 'deep')}><option value="fast">快速整理</option><option value="deep">深度思考</option></select>}

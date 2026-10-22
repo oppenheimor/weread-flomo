@@ -39,31 +39,53 @@ public class AiOrganizer {
             return json;
         } catch(ApiException e) { throw e; } catch(Exception e) { throw new IllegalStateException(e); }
     }
+    private static ApiException invalid(String reason) {
+        return new ApiException(502,"AI 整理失败："+reason+"。旧结果未改动，请重新生成或更换模型");
+    }
     public List<Group> validate(String text,Snapshot snapshot) {
-        try {
-            String json=text.strip();
-            if(json.startsWith("```")) json=json.replaceFirst("^```(?:json)?\\s*","").replaceFirst("\\s*```$","");
-            var parser=mapper.createParser(json); JsonNode result=mapper.readTree(parser);
-            if(parser.nextToken()!=null || result==null || !result.path("groups").isArray() || result.path("groups").isEmpty()) throw new IllegalArgumentException();
+        if(text==null || text.isBlank()) throw invalid("模型未返回内容");
+        String json=text.strip();
+        if(json.startsWith("```")) json=json.replaceFirst("^```(?:json)?\\s*","").replaceFirst("\\s*```$","");
+        // Never expose parser messages: they can contain fragments of private notes.
+        try(var parser=mapper.createParser(json)) {
+            JsonNode result=mapper.readTree(parser);
+            if(parser.nextToken()!=null) throw invalid("JSON 后包含额外内容");
+            if(result==null || !result.isObject() || !result.path("groups").isArray()) throw invalid("输出缺少有效的 groups 分组数组");
+            if(result.path("groups").isEmpty()) throw invalid("模型未返回任何分组");
             var seen=new HashSet<Integer>(); var groups=new ArrayList<Group>();
+            int groupNumber=0;
             for(var group:result.path("groups")) {
-                if(!group.path("sourceIds").isArray() || group.path("sourceIds").isEmpty()) throw new IllegalArgumentException();
+                String location="第 "+(++groupNumber)+" 组";
+                if(!group.isObject() || !group.path("sourceIds").isArray() || group.path("sourceIds").isEmpty()) throw invalid(location+"缺少有效的来源编号列表");
                 var indices=new ArrayList<Integer>();
                 for(var id:group.path("sourceIds")) {
-                    if(!id.isTextual() || !id.asText().matches("0|[1-9][0-9]{0,2}")) throw new IllegalArgumentException();
+                    if(!id.isTextual() || !id.asText().matches("0|[1-9][0-9]{0,2}")) throw invalid(location+"的来源编号格式错误，应使用输入中的字符串编号");
                     int i=Integer.parseInt(id.asText());
-                    if(i>=snapshot.notes().size() || !seen.add(i)) throw new IllegalArgumentException(); indices.add(i);
+                    if(i>=snapshot.notes().size()) throw invalid(location+"引用了不存在的来源编号 "+i);
+                    if(!seen.add(i)) throw invalid("来源编号 "+i+" 被重复使用，每条来源只能归入一个组且出现一次");
+                    indices.add(i);
                 }
                 Collections.sort(indices);
-                String title=group.path("title").asText("").strip(), body=group.path("body").asText("").strip();
-                if(indices.size()==1) { title=""; body=""; }
-                else if(title.isBlank() || title.length()>120 || body.isBlank() || body.length()>20000) throw new IllegalArgumentException();
+                String title="",body="";
+                if(indices.size()>1) {
+                    if(!group.path("title").isTextual()) throw invalid(location+"缺少文本标题");
+                    if(!group.path("body").isTextual()) throw invalid(location+"缺少正文或正文不是文本");
+                    title=group.path("title").asText().strip(); body=group.path("body").asText().strip();
+                    if(title.isBlank()) throw invalid(location+"缺少标题");
+                    if(title.length()>120) throw invalid(location+"标题超过 120 字");
+                    if(body.isBlank()) throw invalid(location+"缺少正文");
+                    if(body.length()>20000) throw invalid(location+"正文超过 20000 字");
+                }
                 groups.add(new Group(title,body,new Snapshot(snapshot.book(),snapshot.chapter(),indices.stream().map(i -> snapshot.notes().get(i)).toList())));
             }
-            if(seen.size()!=snapshot.notes().size()) throw new IllegalArgumentException();
+            if(seen.size()!=snapshot.notes().size()) {
+                var missing=new ArrayList<Integer>();
+                for(int i=0;i<snapshot.notes().size();i++) if(!seen.contains(i)) missing.add(i);
+                throw invalid("遗漏了 "+missing.size()+" 条来源（编号："+String.join("、",missing.stream().limit(10).map(String::valueOf).toList())+(missing.size()>10?" 等":"")+"）");
+            }
             groups.sort(Comparator.comparingInt(g -> snapshot.notes().indexOf(g.snapshot().notes().getFirst())));
             return groups;
-        } catch(Exception e) { throw new ApiException(502,"AI 结果未通过来源完整性校验（遗漏、重复或格式无效），旧结果未改动，请重试或更换模型"); }
+        } catch(java.io.IOException e) { throw invalid("输出不是完整有效的 JSON，可能存在格式错误或内容截断"); }
     }
     public static String content(Card card) {
         var s=card.snapshot();

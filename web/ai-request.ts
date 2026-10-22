@@ -25,8 +25,20 @@ export async function runBrowserJob(job: BrowserJob, invoke: Invoke, onState: (s
     throw error;
   }
   await pending;
-  // A failed acknowledgement must not mark a possibly committed result as failed or regenerate it.
-  return await invoke('/api/ai/browser/complete', { ...identity, text, failed: false }) as AiChapter;
+  // Reconcile through a read only request; never regenerate or fail a possibly committed job.
+  try {
+    return await invoke('/api/ai/browser/complete', { ...identity, text, failed: false }) as AiChapter;
+  } catch (error) {
+    let current: AiChapter | undefined;
+    try {
+      current = await invoke(`/api/ai/chapter?bookId=${encodeURIComponent(job.bookId)}&chapterId=${encodeURIComponent(job.chapterId)}`, undefined) as AiChapter;
+    } catch { /* Preserve the original error if status is also unavailable. */ }
+    if (current && ['running', 'ready', 'failed', 'idle'].includes(current.state)) {
+      onState(current);
+      if (current.state === 'ready' || current.state === 'failed') return current;
+    }
+    throw error;
+  }
 }
 export async function startChapterAi(
   input: { previewId: string; bookId: string; chapterId: string; replaceConfirmed: boolean; deepThinking?: boolean },

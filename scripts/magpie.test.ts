@@ -58,11 +58,36 @@ test('local generation sends only identity and model output to the server', asyn
   assert.deepEqual(calls.map(c => c.path), ['/api/ai/browser/progress', '/api/ai/browser/complete']);
   assert.deepEqual(calls[1].body, { jobId: 'job', bookId: 'book', chapterId: 'chapter', text: 'complete', failed: false });
 });
+test('validation rejection reconciles failed state and clears the running preview without regenerating', async () => {
+  const calls: string[] = [];
+  const failed = { state: 'failed' as const, notes: [], drafts: [], error: 'AI 整理失败：遗漏了 1 条来源。旧结果未改动' };
+  const states: string[] = [];
+  const result = await runBrowserJob(job, async path => {
+    calls.push(path);
+    if (path === '/api/ai/browser/complete') throw new Error(failed.error);
+    return failed;
+  }, value => states.push(value.state), undefined, async () => '{"groups":[]}');
+  assert.equal(result, failed);
+  assert.equal(states.at(-1), 'failed');
+  assert.deepEqual(calls, ['/api/ai/browser/complete', '/api/ai/chapter?bookId=book&chapterId=chapter']);
+});
+test('lost completion acknowledgement recovers committed state with a read only request', async () => {
+  const calls: { path: string; body: unknown }[] = [];
+  const ready = { state: 'ready' as const, notes: [], error: '' };
+  const result = await runBrowserJob(job, async (path, body) => {
+    calls.push({ path, body });
+    if (calls.length === 1) throw new Error('lost acknowledgement');
+    assert.equal(body, undefined);
+    return ready;
+  }, () => {}, undefined, async () => 'complete');
+  assert.equal(result, ready);
+  assert.equal(calls.length, 2);
+});
 test('generation failure marks the job failed; uncertain commit is never retried or marked failed', async () => {
   const calls: unknown[] = [];
   await assert.rejects(runBrowserJob(job, async (_p, body) => { calls.push(body); return {}; }, () => {}, undefined, async () => { throw new Error('offline'); }), /offline/);
   assert.equal((calls[0] as { failed: boolean }).failed, true);
   let count = 0;
   await assert.rejects(runBrowserJob(job, async () => { count++; throw new Error('lost acknowledgement'); }, () => {}, undefined, async () => 'complete'), /lost acknowledgement/);
-  assert.equal(count, 1);
+  assert.equal(count, 2); // One completion attempt, then one read-only reconciliation.
 });

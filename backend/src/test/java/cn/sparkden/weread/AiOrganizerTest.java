@@ -36,6 +36,24 @@ class AiOrganizerTest {
             "{\"groups\":[{\"sourceIds\":[\"0\",\"8\"],\"title\":\"t\",\"body\":\"b\"}]}",
             "{\"groups\":[{\"sourceIds\":[\"0\",\"1\"],\"title\":\"t\",\"body\":\"b\"}]} {}")) assertThrows(ApiException.class,() -> organizer.validate(json,snapshot()));
     }
+    @Test void validationExplainsTheSpecificFailureWithoutExposingNoteContent() {
+        var cases=Map.of(
+            "{\"groups\":[{\"sourceIds\":[\"0\"]}]}", "遗漏了 1 条来源",
+            "{\"groups\":[{\"sourceIds\":[\"0\",\"0\",\"1\"],\"title\":\"t\",\"body\":\"b\"}]}", "重复使用",
+            "{\"groups\":[{\"sourceIds\":[\"0\",\"8\"],\"title\":\"t\",\"body\":\"b\"}]}", "不存在的来源",
+            "{\"groups\":[{\"sourceIds\":[0,1],\"title\":\"t\",\"body\":\"b\"}]}", "来源编号格式",
+            "{\"groups\":[{\"sourceIds\":[\"0\",\"1\"],\"title\":\"t\",\"body\":\"\"}]}", "缺少正文",
+            "{\"groups\":[{\"sourceIds\":[\"0\",\"1\"],\"title\":\""+"长".repeat(121)+"\",\"body\":\"b\"}]}", "标题超过 120 字",
+            "{\"groups\":[", "JSON",
+            "{\"groups\":[]} {}", "额外内容"
+        );
+        cases.forEach((text,reason) -> {
+            var error=assertThrows(ApiException.class,() -> organizer.validate(text,snapshot()));
+            assertTrue(error.getMessage().contains(reason),error.getMessage());
+            assertTrue(error.getMessage().contains("旧结果未改动"));
+            assertFalse(error.getMessage().contains("原文一"));
+        });
+    }
     @Test void singletonsCannotBeRewrittenByModel() {
         var groups=organizer.validate("{\"groups\":[{\"sourceIds\":[\"1\"],\"body\":\"invented\"},{\"sourceIds\":[\"0\"],\"title\":\"invented\"}]}",snapshot());
         assertEquals("",groups.getFirst().body()); assertEquals("",groups.getFirst().title());

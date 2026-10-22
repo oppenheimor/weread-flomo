@@ -73,9 +73,7 @@ public class Normalizer {
         }
         notes.sort(Comparator.comparingInt((Note n) -> n.chapter().order())
             .thenComparing(n -> n.chapter().id()).thenComparingLong(n -> positions.get(n.id())));
-        var warnings = new ArrayList<String>();
-        if (book.noteCount()!=null && book.noteCount()!=highlights.size()) warnings.add("划线数量与书籍概览不一致，请核对");
-        if (book.reviewCount()!=null && book.reviewCount()!=reviews.size()) warnings.add("想法数量与书籍概览不一致，请核对");
-        return new Normalized(notes,warnings);
+        // Overview counts are not a reliable completeness check for fetched notes.
+        return new Normalized(notes,List.of());
     }
 }

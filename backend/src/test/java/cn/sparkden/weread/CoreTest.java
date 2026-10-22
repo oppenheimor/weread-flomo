@@ -115,7 +115,7 @@ class CoreTest {
     }
     @Test void ambiguousRangeDoesNotMerge() {
         var result=new Normalizer(mapper).normalize(book,new SourceNotes(List.of(new Highlight("h","原文","1","1-3"),new Highlight("h2","原文2","1","1-3")),List.of(new Review("r","想法","","1","1-3"))));
-        assertEquals(3,result.notes().size()); assertFalse(result.warnings().isEmpty());
+        assertEquals(3,result.notes().size()); assertTrue(result.warnings().isEmpty());
     }
     @Test void tagEscapesWhitespaceAndSeparators() { assertEquals("#微信读书/《A＿B／＃》",Normalizer.tag("A B/#")); }
     @Test void emptyContentStops() { assertThrows(ApiException.class,() -> new Normalizer(mapper).normalize(book,new SourceNotes(List.of(new Highlight("h","","1","")),List.of()))); }

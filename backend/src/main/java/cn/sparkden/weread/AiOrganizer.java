@@ -22,7 +22,9 @@ public class AiOrganizer {
         标题简短具体，使用纯文本。正文自然可读，禁止元叙述、空泛总结。来源原文和用户想法将由程序原样附上。
         正文可用 Markdown **重点短语或关键句** 标记少量值得回看的重点，每组通常 1 到 3 处，避免整段加粗。允许换行分段；不使用 HTML、Markdown 标题、列表、表格或其他 Markdown 格式。附带的来源原文和用户想法不改写、不加标记。
         直接输出 groups，不输出整理过程说明、推理过程或其他前言；正文中来源支持的方法步骤应正常保留。各组按首个来源的阅读顺序排列，每组字段按 sourceIds、title、body 的顺序输出，让用户先看到标题再看到正文。
-        没有明确关联的笔记独立成组，单条组 title 和 body 返回空字符串，程序保留原文与想法。
+        sourceIds 含两个或更多 id 时，title 和 body 必须均为非空文本：title 最多 120 字，body 最多 20000 字。
+        没有明确关联或无需整理的笔记，每条分别独立成组，sourceIds 只能包含一个 id，title 和 body 返回空字符串，程序保留原文与想法。不得把多条无需整理的笔记放入同一个空标题、空正文组。
+        输出前检查：多来源组必须有标题和正文；所有保留原文的组必须只有一个来源。
         只返回 JSON 对象，不加 Markdown 围栏：
         {"groups":[{"sourceIds":["0","1"],"title":"简短标题","body":"连贯正文"},{"sourceIds":["2"],"title":"","body":""}]}
         sourceIds 只使用输入给出的 id。所有输入 id 必须恰好覆盖一次。
@@ -71,6 +73,12 @@ public class AiOrganizer {
                     if(!group.path("title").isTextual()) throw invalid(location+"缺少文本标题");
                     if(!group.path("body").isTextual()) throw invalid(location+"缺少正文或正文不是文本");
                     title=group.path("title").asText().strip(); body=group.path("body").asText().strip();
+                    // Some models batch unchanged notes into one empty group. Restore singletons,
+                    // never invent prose or discard sources. Exact coverage is still checked below.
+                    if(title.isEmpty() && body.isEmpty()) {
+                        for(int i:indices) groups.add(new Group("","",new Snapshot(snapshot.book(),snapshot.chapter(),List.of(snapshot.notes().get(i)))));
+                        continue;
+                    }
                     if(title.isBlank()) throw invalid(location+"缺少标题");
                     if(title.length()>120) throw invalid(location+"标题超过 120 字");
                     if(body.isBlank()) throw invalid(location+"缺少正文");

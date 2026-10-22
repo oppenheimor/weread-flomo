@@ -54,6 +54,57 @@ class AiOrganizerTest {
             assertFalse(error.getMessage().contains("原文一"));
         });
     }
+    @Test void blankTitleInMultiSourceGroupReproducesReportedFailure() {
+        for(String title:List.of("", "   ", "\n\t")) {
+            var group=new LinkedHashMap<String,Object>();
+            group.put("sourceIds",List.of("0","1")); group.put("title",title); group.put("body","完整正文");
+            String text=new ObjectMapper().valueToTree(Map.of("groups",List.of(group))).toString();
+            var error=assertThrows(ApiException.class,() -> organizer.validate(text,snapshot()));
+            assertEquals("AI 整理失败：第 1 组缺少标题。旧结果未改动，请重新生成或更换模型",error.getMessage());
+        }
+        // Same sources and body succeed when only the title is corrected.
+        var groups=organizer.validate("{\"groups\":[{\"sourceIds\":[\"0\",\"1\"],\"title\":\"具体标题\",\"body\":\"完整正文\"}]}",snapshot());
+        assertEquals(1,groups.size());
+        assertEquals("具体标题",groups.getFirst().title());
+    }
+    @Test void magpieEmptyMultiSourceGroupBecomesIndependentSourcesWithoutLosingOtherGroups() {
+        var base=snapshot();
+        var notes=new ArrayList<Note>();
+        for(int i=0;i<14;i++) notes.add(new Note("n"+i,"b","highlight",List.of("s"+i),"原样内容"+i,"原文"+i,"想法"+i,base.chapter(),(long)i));
+        var snap=new Snapshot(base.book(),base.chapter(),notes);
+        // Same grouping and empty fields as the reported Magpie response; private prose replaced.
+        String text="""
+            {"groups":[
+              {"sourceIds":["0","1"],"title":"","body":""},
+              {"sourceIds":["2","3","4","5","6","7","8","9"],"title":"标题二","body":"正文二"},
+              {"sourceIds":["10","11"],"title":"标题三","body":"正文三"},
+              {"sourceIds":["12","13"],"title":"标题四","body":"正文四"}
+            ]}
+            """;
+        var groups=organizer.validate(text,snap);
+        assertEquals(List.of(1,1,8,2,2),groups.stream().map(g -> g.snapshot().notes().size()).toList());
+        assertEquals(notes,groups.stream().flatMap(g -> g.snapshot().notes().stream()).toList());
+        for(int i=0;i<2;i++) {
+            var group=groups.get(i);
+            assertEquals("",group.title()); assertEquals("",group.body());
+            assertEquals(notes.get(i).content(),AiOrganizer.content(new Card("id"+i,"","",group.snapshot(),"ready",false,1)));
+        }
+        assertEquals(List.of("标题二","标题三","标题四"),groups.subList(2,5).stream().map(AiOrganizer.Group::title).toList());
+        assertEquals(List.of("正文二","正文三","正文四"),groups.subList(2,5).stream().map(AiOrganizer.Group::body).toList());
+    }
+    @Test void emptyGroupRecoveryStillRequiresTextFieldsAndExactSourceCoverage() {
+        for(String fields:List.of("",",\"title\":null,\"body\":\"\"",",\"title\":\"\",\"body\":null",",\"title\":\"\",\"body\":{}")) {
+            assertThrows(ApiException.class,() -> organizer.validate("{\"groups\":[{\"sourceIds\":[\"0\",\"1\"]"+fields+"}]}",snapshot()));
+        }
+        for(String ids:List.of("\"0\",\"0\"","\"0\",\"8\"","0,1")) {
+            assertThrows(ApiException.class,() -> organizer.validate("{\"groups\":[{\"sourceIds\":["+ids+"],\"title\":\"\",\"body\":\"\"}]}",snapshot()));
+        }
+        assertThrows(ApiException.class,() -> organizer.validate("{\"groups\":[{\"sourceIds\":[\"0\",\"1\"],\"title\":\"\",\"body\":\"\"},{\"sourceIds\":[\"1\"]}]}",snapshot()));
+        var base=snapshot();
+        var three=new Snapshot(base.book(),base.chapter(),List.of(base.notes().get(0),base.notes().get(1),new Note("c","b","highlight",List.of("c"),"第三条","原文三","",base.chapter(),3L)));
+        var missing=assertThrows(ApiException.class,() -> organizer.validate("{\"groups\":[{\"sourceIds\":[\"0\",\"1\"],\"title\":\"\",\"body\":\"\"}]}",three));
+        assertTrue(missing.getMessage().contains("遗漏了 1 条来源"));
+    }
     @Test void singletonsCannotBeRewrittenByModel() {
         var groups=organizer.validate("{\"groups\":[{\"sourceIds\":[\"1\"],\"body\":\"invented\"},{\"sourceIds\":[\"0\"],\"title\":\"invented\"}]}",snapshot());
         assertEquals("",groups.getFirst().body()); assertEquals("",groups.getFirst().title());

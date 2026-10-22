@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, LogOut, Settings } from 'lucide-react';
+import { ChartNoAxesColumn, Boxes, ChevronDown, LogOut, Settings } from 'lucide-react';
 
 interface Props {
   username: string;
   disabled: boolean;
   needsSetup: boolean;
   onSettings: () => void;
+  onModels: () => void;
+  onStatistics: () => void;
   onLogout: () => void;
 }
-export function AccountMenu({ username, disabled, needsSetup, onSettings, onLogout }: Props) {
+export function AccountMenu({ username, disabled, needsSetup, onSettings, onModels, onStatistics, onLogout }: Props) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -35,6 +37,8 @@ export function AccountMenu({ username, disabled, needsSetup, onSettings, onLogo
     {open && <div className="account-options" id="account-options">
       <p className="account-menu-name">{username}</p>
       <button type="button" className="text-button" disabled={disabled} onClick={() => { setOpen(false); onSettings(); }}><Settings size={16} strokeWidth={1.75} aria-hidden="true" />账号设置{needsSetup && <span className="attention" aria-hidden="true" />}</button>
+      <button type="button" className="text-button" disabled={disabled} onClick={() => { setOpen(false); onStatistics(); }}><ChartNoAxesColumn size={16} strokeWidth={1.75} aria-hidden="true" />数据统计</button>
+      <button type="button" className="text-button" disabled={disabled} onClick={() => { setOpen(false); onModels(); }}><Boxes size={16} strokeWidth={1.75} aria-hidden="true" />模型设置</button>
       <button type="button" className="text-button" disabled={disabled} onClick={() => { setOpen(false); onLogout(); }}><LogOut size={16} strokeWidth={1.75} aria-hidden="true" />退出登录</button>
     </div>}
   </div>;

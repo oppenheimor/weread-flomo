@@ -32,6 +32,202 @@ class PostgresTest {
     @Autowired PasswordEncoder encoder;
     @Autowired LedgerImport importer;
     @Autowired Credentials credentials;
+    @Autowired AiProviderService aiProviders;
+    @Autowired org.springframework.transaction.support.TransactionTemplate transactions;
+    private UUID aiUser() {
+        UUID user=UUID.randomUUID();
+        db.update("INSERT INTO app_user(id,username,password_hash) VALUES (?,?,?)",user,"ai-"+user,encoder.encode("test-only-password")); return user;
+    }
+    private AiModels.Snapshot aiSnapshot() {
+        var chapter=new Chapter("c","前言",1);
+        return new AiModels.Snapshot(new Book("b","测试书","作者",2,0),chapter,List.of(
+            new Note("a","b","highlight",List.of("source-a"),"原文 A","原文 A","想法 A",chapter,1L),
+            new Note("b","b","highlight",List.of("source-b"),"原文 B","原文 B","",chapter,2L)));
+    }
+    private AiService fixtureAi(AiTransport transport,RemoteApis remote) {
+        NotebookService notebook=org.mockito.Mockito.mock(NotebookService.class);
+        org.mockito.Mockito.when(notebook.exclusive(org.mockito.ArgumentMatchers.any())).thenAnswer(call -> ((java.util.function.Supplier<?>)call.getArgument(0)).get());
+        org.mockito.Mockito.when(notebook.serialized(org.mockito.ArgumentMatchers.any())).thenAnswer(call -> ((java.util.function.Supplier<?>)call.getArgument(0)).get());
+        org.mockito.Mockito.when(notebook.aiSnapshot(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any())).thenReturn(aiSnapshot());
+        return new AiService(db,mapper,notebook,ledger,remote,aiProviders,transport,new AiOrganizer(mapper),transactions);
+    }
+    private void aiConfig(UUID user) {
+        aiProviders.save(user,new AiModels.ProviderChange("test","Test","openai","https://api.example.com/v1","secret-test-key",List.of("test-model")));
+        aiProviders.setDefault(user,new AiModels.DefaultModel("test","test-model"));
+    }
+    private AiModels.ChapterState waitAi(AiService service,UUID user) throws Exception {
+        for(int i=0;i<100;i++) { var state=service.state(user,"b","c"); if(!state.state().equals("running")) return state; Thread.sleep(20); }
+        fail("AI job did not complete"); return null;
+    }
+    @Test void aiCredentialsAreEncryptedIsolatedAndDefaultIsExplicit() {
+        UUID user=aiUser(),other=aiUser(); aiConfig(user);
+        var state=aiProviders.settings(user);
+        assertTrue(state.providers().getFirst().hasKey()); assertEquals("test-model",state.defaultModel().model());
+        assertFalse(db.queryForObject("SELECT ciphertext FROM ai_provider WHERE user_id=?",String.class,user).contains("secret-test-key"));
+        assertTrue(aiProviders.settings(other).providers().isEmpty()); assertNull(aiProviders.settings(other).defaultModel());
+        assertThrows(ApiException.class,() -> aiProviders.connection(other,"test","test-model"));
+        aiProviders.save(user,new AiModels.ProviderChange("test","Renamed","openai","https://api.example.com/v1",null,List.of("test-model")));
+        assertEquals("secret-test-key",aiProviders.defaultConnection(user).key());
+        aiProviders.delete(user,"test"); assertNull(aiProviders.settings(user).defaultModel());
+    }
+    @Test void browserMagpieJobsValidateIsolateExpireAndNeverUseServerTransport() {
+        UUID user=aiUser(),other=aiUser();
+        assertThrows(ApiException.class,() -> aiProviders.save(user,new AiModels.ProviderChange("magpie","Magpie","openai","http://localhost:3425/v1","must-not-upload",List.of())));
+        aiProviders.save(user,new AiModels.ProviderChange("magpie","Magpie","openai","http://localhost:3425/v1",null,List.of("provider/model")));
+        aiProviders.setDefault(user,new AiModels.DefaultModel("magpie","provider/model"));
+        assertFalse(aiProviders.settings(user).providers().getFirst().hasKey());
+        assertThrows(ApiException.class,() -> aiProviders.defaultConnection(user));
+        var transport=org.mockito.Mockito.mock(AiTransport.class);
+        var service=fixtureAi(transport,org.mockito.Mockito.mock(RemoteApis.class));
+        String valid="{\"groups\":[{\"sourceIds\":[\"0\",\"1\"],\"title\":\"标题\",\"body\":\"正文\"}]}";
+        try {
+            var job=(AiModels.BrowserJob)service.start(user,new AiModels.Start("preview","c",false));
+            assertEquals("provider/model",job.model()); assertTrue(job.prompt().contains("原文 A"));
+            var result=new AiModels.BrowserResult("b","c",job.jobId(),valid,false);
+            assertThrows(ApiException.class,() -> service.browserResult(other,result,false));
+            assertThrows(ApiException.class,() -> service.browserResult(user,new AiModels.BrowserResult("b","c",UUID.randomUUID(),valid,false),false));
+            assertEquals("running",service.browserResult(user,result,true).state());
+            assertFalse(service.state(user,"b","c").drafts().isEmpty());
+            var saved=service.browserResult(user,result,false);
+            assertEquals("ready",saved.state()); assertEquals(1,saved.notes().size());
+            assertEquals(saved.notes().getFirst().id(),service.browserResult(user,result,false).notes().getFirst().id());
+            var replacement=(AiModels.BrowserJob)service.start(user,new AiModels.Start("preview","c",true));
+            assertThrows(ApiException.class,() -> service.browserResult(user,result,false));
+            assertThrows(ApiException.class,() -> service.browserResult(user,new AiModels.BrowserResult("b","c",replacement.jobId(),"{\"groups\":[]}",false),false));
+            assertEquals("failed",service.state(user,"b","c").state());
+            assertEquals(saved.notes().getFirst().id(),service.state(user,"b","c").notes().getFirst().id());
+            var expired=(AiModels.BrowserJob)service.start(user,new AiModels.Start("preview","c",true));
+            db.update("UPDATE ai_chapter SET client_deadline=now()-interval '1 second' WHERE user_id=?",user);
+            assertEquals("failed",service.state(user,"b","c").state());
+            assertThrows(ApiException.class,() -> service.browserResult(user,new AiModels.BrowserResult("b","c",expired.jobId(),valid,false),false));
+            org.mockito.Mockito.verifyNoInteractions(transport);
+        } finally { service.stop(); }
+    }
+    @Autowired StatisticsController statistics;
+    @Test void statisticsCountOriginalSourcesAcrossAiAndBeijingMidnight() {
+        UUID user=aiUser();
+        var chapter=new Chapter("c","章",1);
+        var first=new Note("s1","b1","highlight",List.of("[\"b1\",\"highlight\",\"1\"]","[\"b1\",\"review\",\"2\"]"),"内容","原文","想法",chapter,1L);
+        var second=new Note("s2","b2","highlight",List.of("[\"b2\",\"highlight\",\"3\"]"),"内容","原文","",chapter,1L);
+        ledger.reserve(user,first); ledger.finish(user,first.id(),"sent");
+        db.update("UPDATE delivery SET updated_at='2024-02-29T15:59:59Z' WHERE user_id=? AND note_id=?",user,first.id());
+        ledger.reserveOrganized(user,"ai:stats","整理",List.of(first,second));
+        assertEquals(2,statistics.forUser(user).notes()); // sending sources do not count
+        ledger.finish(user,"ai:stats","uncertain");
+        assertEquals(2,statistics.forUser(user).notes());
+        ledger.resolveOrganized(user,"ai:stats",true);
+        db.update("UPDATE delivery SET updated_at='2024-02-29T16:00:00Z' WHERE user_id=? AND note_id='ai:stats'",user);
+        ledger.reserveOrganized(user,"ai:repeat","再次整理",List.of(first,second)); ledger.finish(user,"ai:repeat","sent");
+        var result=statistics.forUser(user);
+        assertEquals(3,result.notes()); assertEquals(2,result.books()); assertEquals(2,result.activeDays());
+        assertEquals(Map.of("2024-02-29",2L,"2024-03-01",1L),result.days());
+        assertEquals(0,statistics.forUser(aiUser()).notes());
+    }
+    @Test void organizedDeliveryCanFollowOriginalAndPreservesItsSentHistory() {
+        UUID user=aiUser(); var sources=aiSnapshot().notes();
+        ledger.reserve(user,sources.getFirst()); ledger.finish(user,sources.getFirst().id(),"sent");
+        ledger.reserveOrganized(user,"ai:test","整理正文",sources);
+        assertEquals("sent",ledger.status(user,sources.getFirst()));
+        assertEquals("sending",ledger.status(user,sources.get(1)));
+        ledger.finish(user,"ai:test","uncertain");
+        assertThrows(ApiException.class,() -> ledger.reserve(user,sources.get(1)));
+        ledger.resolveOrganized(user,"ai:test",false);
+        assertEquals("sent",ledger.status(user,sources.getFirst())); assertEquals("ready",ledger.status(user,sources.get(1)));
+        ledger.reserveOrganized(user,"ai:test","整理正文",sources); ledger.finish(user,"ai:test","sent");
+        assertEquals("sent",ledger.status(user,sources.get(1)));
+        assertThrows(ApiException.class,() -> ledger.reserveOrganized(user,"ai:test","重复",sources));
+        assertEquals("ready",ledger.ownStatus(aiUser(),"ai:test"));
+    }
+    @Test void aiGenerationReplacementValidationEditingAndDeliveryArePersistent() throws Exception {
+        UUID user=aiUser(); aiConfig(user);
+        var transport=org.mockito.Mockito.mock(AiTransport.class); var remote=org.mockito.Mockito.mock(RemoteApis.class);
+        org.mockito.Mockito.when(remote.status(user)).thenReturn(Map.of("sendingEnabled",true));
+        String valid="{\"groups\":[{\"sourceIds\":[\"0\",\"1\"],\"title\":\"标题\",\"body\":\"整理正文\"}]}";
+        org.mockito.Mockito.when(transport.generateStreaming(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.any())).thenReturn(valid);
+        AiService service=fixtureAi(transport,remote);
+        try {
+            service.start(user,new AiModels.Start("preview","c",false)); var state=waitAi(service,user);
+            assertEquals("ready",state.state()); assertEquals(1,state.notes().size());
+            var card=state.notes().getFirst();
+            assertTrue(service.state(aiUser(),"b","c").notes().isEmpty());
+            service.update(user,new AiModels.Update("b","c",card.id(),"手动标题","手动正文",card.version()));
+            assertThrows(ApiException.class,() -> service.update(user,new AiModels.Update("b","c",card.id(),"旧版本","正文",card.version())));
+            assertThrows(ApiException.class,() -> service.start(user,new AiModels.Start("preview","c",false)));
+            org.mockito.Mockito.when(transport.generateStreaming(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.any())).thenReturn("{\"groups\":[]}");
+            service.start(user,new AiModels.Start("preview","c",true)); state=waitAi(service,user);
+            assertEquals("failed",state.state()); assertEquals("手动正文",state.notes().getFirst().body());
+            service.send(user,new AiModels.Selection("b","c",List.of(card.id()),true));
+            assertEquals("sent",service.state(user,"b","c").notes().getFirst().status());
+            for(var source:aiSnapshot().notes()) assertEquals("sent",ledger.status(user,source));
+            org.mockito.Mockito.verify(remote).send(org.mockito.ArgumentMatchers.eq(user),org.mockito.ArgumentMatchers.contains("手动正文"));
+        } finally { service.stop(); }
+    }
+    @Test void liveDraftsAreIsolatedReadOnlyAndDiscardedOnFailureWithoutReplacingSavedNotes() throws Exception {
+        UUID user=aiUser(); aiConfig(user);
+        var transport=org.mockito.Mockito.mock(AiTransport.class); var remote=org.mockito.Mockito.mock(RemoteApis.class);
+        String valid="{\"groups\":[{\"sourceIds\":[\"0\",\"1\"],\"title\":\"旧标题\",\"body\":\"旧正文\"}]}";
+        org.mockito.Mockito.when(transport.generateStreaming(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.any())).thenReturn(valid);
+        AiService service=fixtureAi(transport,remote);
+        var published=new java.util.concurrent.CountDownLatch(1); var release=new java.util.concurrent.CountDownLatch(1);
+        try {
+            service.start(user,new AiModels.Start("preview","c",false)); var saved=waitAi(service,user).notes().getFirst();
+            org.mockito.Mockito.when(transport.generateStreaming(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.any())).thenAnswer(call -> {
+                java.util.function.Consumer<String> callback=call.getArgument(4);
+                callback.accept("{\"groups\":[{\"sourceIds\":[\"0\",\"1\"],\"title\":\"新标题\",\"body\":\"正在写");
+                published.countDown(); release.await(5,java.util.concurrent.TimeUnit.SECONDS);
+                return "{\"groups\":[]}";
+            });
+            service.start(user,new AiModels.Start("preview","c",true));
+            assertTrue(published.await(5,java.util.concurrent.TimeUnit.SECONDS));
+            var running=service.state(user,"b","c");
+            assertEquals("running",running.state()); assertTrue(running.notes().isEmpty());
+            assertEquals("正在写",running.drafts().getFirst().body());
+            assertTrue(service.state(aiUser(),"b","c").drafts().isEmpty());
+            assertThrows(ApiException.class,() -> service.send(user,new AiModels.Selection("b","c",List.of(saved.id()),true)));
+            assertThrows(ApiException.class,() -> service.update(user,new AiModels.Update("b","c","draft-0","x","x",1)));
+            release.countDown(); var failed=waitAi(service,user);
+            assertEquals("failed",failed.state()); assertTrue(failed.drafts().isEmpty());
+            assertEquals(saved.id(),failed.notes().getFirst().id()); assertEquals("旧正文",failed.notes().getFirst().body());
+            org.mockito.Mockito.verifyNoInteractions(remote);
+        } finally { release.countDown(); service.stop(); }
+    }
+    @Test void organizedSendStopsOnUncertainAndLocksOnlyItsSources() throws Exception {
+        UUID user=aiUser(); aiConfig(user);
+        var transport=org.mockito.Mockito.mock(AiTransport.class); var remote=org.mockito.Mockito.mock(RemoteApis.class);
+        org.mockito.Mockito.when(remote.status(user)).thenReturn(Map.of("sendingEnabled",true));
+        org.mockito.Mockito.when(transport.generateStreaming(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.any())).thenReturn("{\"groups\":[{\"sourceIds\":[\"0\"]},{\"sourceIds\":[\"1\"]}]}");
+        org.mockito.Mockito.doThrow(new ApiException(502,"timeout")).when(remote).send(org.mockito.ArgumentMatchers.eq(user),org.mockito.ArgumentMatchers.anyString());
+        AiService service=fixtureAi(transport,remote);
+        try {
+            service.start(user,new AiModels.Start("preview","c",false)); var state=waitAi(service,user);
+            var ids=state.notes().stream().map(AiModels.Card::id).toList();
+            service.send(user,new AiModels.Selection("b","c",ids,true)); state=service.state(user,"b","c");
+            assertEquals("uncertain",state.notes().get(0).status()); assertEquals("ready",state.notes().get(1).status());
+            assertEquals("uncertain",ledger.status(user,aiSnapshot().notes().get(0))); assertEquals("ready",ledger.status(user,aiSnapshot().notes().get(1)));
+            org.mockito.Mockito.verify(remote,org.mockito.Mockito.times(1)).send(org.mockito.ArgumentMatchers.eq(user),org.mockito.ArgumentMatchers.anyString());
+            assertThrows(ApiException.class,() -> service.start(user,new AiModels.Start("preview","c",true)));
+            service.resolve(user,new AiModels.Resolution("b","c",ids.getFirst(),true));
+            assertEquals("sent",service.state(user,"b","c").notes().getFirst().status());
+            // A successful replacement retains the immutable sent history.
+            service.start(user,new AiModels.Start("preview","c",true)); state=waitAi(service,user);
+            assertTrue(state.notes().stream().anyMatch(n -> n.id().equals(ids.getFirst()) && n.status().equals("sent")));
+        } finally { service.stop(); }
+    }
+    @Test void runningAiLocksEditsAndDuplicateJobsButDoesNotDependOnPageLifetime() throws Exception {
+        UUID user=aiUser(); aiConfig(user);
+        var latch=new java.util.concurrent.CountDownLatch(1);
+        var transport=org.mockito.Mockito.mock(AiTransport.class); var remote=org.mockito.Mockito.mock(RemoteApis.class);
+        org.mockito.Mockito.when(transport.generateStreaming(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.any())).thenAnswer(call -> { latch.await(); return "{\"groups\":[{\"sourceIds\":[\"0\"]},{\"sourceIds\":[\"1\"]}]}"; });
+        AiService service=fixtureAi(transport,remote);
+        try {
+            service.start(user,new AiModels.Start("preview","c",false));
+            assertThrows(ApiException.class,() -> service.start(user,new AiModels.Start("preview","c",false)));
+            assertThrows(ApiException.class,() -> service.update(user,new AiModels.Update("b","c","unknown","t","b",1)));
+            assertThrows(ApiException.class,() -> service.send(user,new AiModels.Selection("b","c",List.of("unknown"),true)));
+            latch.countDown(); var state=waitAi(service,user); assertEquals(2,state.notes().size());
+            assertEquals("原文 A",AiOrganizer.content(state.notes().getFirst()));
+        } finally { latch.countDown(); service.stop(); }
+    }
     private String url(String path) { return "http://127.0.0.1:"+port+path; }
     private HttpResponse<String> get(HttpClient client,String path) throws Exception { return client.send(HttpRequest.newBuilder(URI.create(url(path))).GET().build(),HttpResponse.BodyHandlers.ofString()); }
     private HttpResponse<String> post(HttpClient client,String path,String body,String csrf,String origin,String type) throws Exception {

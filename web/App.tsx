@@ -7,6 +7,9 @@ import { BookCover, progressText } from './BookCover.tsx';
 import { NotesPage } from './NotesPage.tsx';
 import { ThemeToggle } from './ThemeToggle.tsx';
 import { AccountMenu } from './AccountMenu.tsx';
+import { StatisticsPage } from './StatisticsPage.tsx';
+import { ModelSettings } from './ModelSettings.tsx';
+import type { AiSettings } from './ai-types.ts';
 
 const message = (error: unknown): string => error instanceof Error ? error.message : '操作失败，请重试。';
 
@@ -19,6 +22,13 @@ function pendingOf(book: Book, stats?: SyncStats): number | null {
 interface Props { username: string; onLogout: () => void; loggingOut: boolean }
 
 export function App({ username, onLogout, loggingOut }: Props) {
+  const [statisticsOpen, setStatisticsOpen] = useState(window.location.hash === '#statistics');
+  useEffect(() => {
+    const changed = () => setStatisticsOpen(window.location.hash === '#statistics');
+    window.addEventListener('hashchange', changed);
+    return () => window.removeEventListener('hashchange', changed);
+  }, []);
+  function closeStatistics() { window.location.hash = ''; setStatisticsOpen(false); }
   const [config, setConfig] = useState<ConfigStatus | null>(null);
   const [books, setBooks] = useState<Book[] | null>(null);
   const [sync, setSync] = useState<Record<string, SyncStats>>({});
@@ -27,9 +37,12 @@ export function App({ username, onLogout, loggingOut }: Props) {
   const [query, setQuery] = useState('');
   const [openBook, setOpenBook] = useState<Book | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [noteNavigation, setNoteNavigation] = useState({ busy: false, selected: 0 });
+  const [modelsOpen, setModelsOpen] = useState(false);
+  const [aiSettings, setAiSettings] = useState<AiSettings | null>(null);
+  const [noteNavigation, setNoteNavigation] = useState({ busy: false, selected: 0, dirty: false });
+  useEffect(() => { const controller = new AbortController(); request<AiSettings>('/api/ai/settings', undefined, controller.signal).then(setAiSettings).catch(() => {}); return () => controller.abort(); }, []);
   function canLeaveNotes() {
-    return !openBook || (!noteNavigation.busy && (!noteNavigation.selected || window.confirm('离开后不会保留已选笔记，确定继续？')));
+    return !openBook || (!noteNavigation.busy && (!noteNavigation.dirty || window.confirm('有未保存的修改，放弃修改并离开？')) && (!noteNavigation.selected || window.confirm('离开后不会保留已选笔记，确定继续？')));
   }
   // 书架计数单位是微信读书条目（划线、想法各算一条）；打开过的书以预览实际结果覆盖概览估算。
   const [exact, setExact] = useState<Record<string, number>>({});
@@ -70,17 +83,20 @@ export function App({ username, onLogout, loggingOut }: Props) {
 
   return <div className={`app-shell${openBook ? ' app-shell-review' : ''}`}>
     <header className="topbar">
-      <h1 className="brand"><button type="button" className="brand-home" aria-label="拾墨，返回书架" disabled={Boolean(openBook && noteNavigation.busy)} onClick={() => { if (canLeaveNotes()) setOpenBook(null); }}><img src={`${import.meta.env.BASE_URL}assets/brand/shimo-logo.png`} width="48" height="48" alt="" draggable={false} /><span>拾墨</span></button></h1>
+      <h1 className="brand"><button type="button" className="brand-home" aria-label="拾墨，返回书架" disabled={Boolean(openBook && noteNavigation.busy)} onClick={() => { if (canLeaveNotes()) { setOpenBook(null); closeStatistics(); } }}><img src={`${import.meta.env.BASE_URL}assets/brand/shimo-logo.png`} width="48" height="48" alt="" draggable={false} /><span>拾墨</span></button></h1>
       <nav className="topbar-actions" aria-label="账号">
         <a className="about-link" href={`${import.meta.env.BASE_URL}introduction`} target="_blank" rel="noopener noreferrer"><Feather size={16} aria-hidden="true" />关于拾墨<span className="sr-only">（新窗口）</span></a>
         <AccountMenu username={username} disabled={loggingOut || Boolean(openBook && noteNavigation.busy)} needsSetup={Boolean(config && !config.wereadConfigured)}
           onSettings={() => { if (canLeaveNotes()) { setOpenBook(null); setSettingsOpen(true); } }}
+          onModels={() => setModelsOpen(true)}
+          onStatistics={() => { if (canLeaveNotes()) { setOpenBook(null); window.location.hash = 'statistics'; setStatisticsOpen(true); } }}
           onLogout={() => { if (canLeaveNotes()) onLogout(); }} />
         <ThemeToggle />
       </nav>
     </header>
 
-    {!openBook && <main className="app-main">
+    {statisticsOpen && <StatisticsPage onClose={closeStatistics} />}
+    {!statisticsOpen && !openBook && <main className="app-main">
       {error && <div className="notice error banner" role="alert">
         <p>{error}</p>
         {config?.wereadConfigured && <button type="button" className="text-button" onClick={loadBooks}>重试</button>}
@@ -140,8 +156,9 @@ export function App({ username, onLogout, loggingOut }: Props) {
       </>}
     </main>}
 
-    {openBook && <NotesPage onNavigationStateChange={setNoteNavigation} key={openBook.bookId} book={openBook} sendingEnabled={Boolean(config?.sendingEnabled)}
+    {!statisticsOpen && openBook && <NotesPage aiThinkingControl={Boolean(aiSettings?.thinkingControl)} aiConfigured={Boolean(aiSettings?.defaultModel)} onOpenModels={() => setModelsOpen(true)} onNavigationStateChange={setNoteNavigation} key={openBook.bookId} book={openBook} sendingEnabled={Boolean(config?.sendingEnabled)}
       onOpenSettings={() => { setOpenBook(null); setSettingsOpen(true); }} onSynced={refreshSync} onCounted={(id, ready) => setExact(previous => ({ ...previous, [id]: ready }))} onClose={() => setOpenBook(null)} />}
+    {modelsOpen && <ModelSettings onClose={() => setModelsOpen(false)} onChanged={setAiSettings} />}
     {settingsOpen && <CredentialSettings config={config} onChanged={credentialsChanged} onClose={() => setSettingsOpen(false)} />}
   </div>;
 }

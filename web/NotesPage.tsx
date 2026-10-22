@@ -1,15 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Circle, ChevronLeft, ChevronRight, RefreshCw, Trash2, Pencil } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ArrowLeft, Circle, ChevronLeft, ChevronRight, RefreshCw, Trash2, Pencil, Sparkles, ArrowDown } from 'lucide-react';
 import type { Book, PreviewNote, PreviewResponse } from './types.ts';
 import { exclusive, request } from './api.ts';
 import { BookCover, progressText } from './BookCover.tsx';
 import { Sheet } from './Sheet.tsx';
+import { AiChapterNotes } from './AiCompanion.tsx';
+import { AiWriting } from './AiWriting.tsx';
+import { startChapterAi } from './ai-request.ts';
+import type { AiChapter } from './ai-types.ts';
+import './chapter-tools.css';
 
 type Tab = 'ready' | 'sent' | 'uncertain';
 interface Outcome { sent: number; uncertain: number; remaining: string[]; error?: string }
 interface Props {
   book: Book; sendingEnabled: boolean;
-  onNavigationStateChange: (state: { busy: boolean; selected: number }) => void;
+  aiThinkingControl: boolean; aiConfigured: boolean; onOpenModels: () => void;
+  onNavigationStateChange: (state: { busy: boolean; selected: number; dirty: boolean }) => void;
   onOpenSettings: () => void; onSynced: () => void; onCounted: (bookId: string, ready: number) => void; onClose: () => void;
 }
 
@@ -23,7 +29,7 @@ function addedDate(timestamp?: number | null): string | null {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-export function NotesPage({ book, sendingEnabled, onNavigationStateChange, onOpenSettings, onSynced, onCounted, onClose }: Props) {
+export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigured, onOpenModels, onNavigationStateChange, onOpenSettings, onSynced, onCounted, onClose }: Props) {
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -47,8 +53,154 @@ export function NotesPage({ book, sendingEnabled, onNavigationStateChange, onOpe
     requestAnimationFrame(() => editTrigger.current?.focus());
   }
   const [chapterId, setChapterId] = useState<string | null>(null);
+  const [aiView, setAiView] = useState(false);
+  const [deepThinking, setDeepThinking] = useState(false);
+  useEffect(() => { setDeepThinking(false); }, [chapterId, aiThinkingControl]);
+  const [aiChapter, setAiChapter] = useState<AiChapter | null>(null);
+  const [savedChapters, setSavedChapters] = useState<PreviewNote['chapter'][]>([]);
+  useEffect(() => { const controller = new AbortController(); request<PreviewNote['chapter'][]>(`/api/ai/chapters?bookId=${encodeURIComponent(book.bookId)}`, undefined, controller.signal).then(setSavedChapters).catch(() => {}); return () => controller.abort(); }, [book.bookId]);
+  const [aiSelected, setAiSelected] = useState<string[]>([]);
+  const [aiDirty, setAiDirty] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const browserAi = useRef<AbortController | null>(null);
+  useEffect(() => () => browserAi.current?.abort(), []);
+  const [aiError, setAiError] = useState('');
+  const [aiRefresh, setAiRefresh] = useState(0);
+  const [aiEditorKey, setAiEditorKey] = useState(0);
+  const activeChapter = useRef(chapterId); activeChapter.current = chapterId;
+  const aiRunning = aiChapter?.state === 'running';
+  useEffect(() => { setAiView(false); setAiChapter(null); setAiSelected([]); setAiError(''); setAiDirty(false); }, [chapterId]);
+  useEffect(() => {
+    if (chapterId === null) return;
+    const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>;
+    async function poll() {
+      try {
+        const value = await request<AiChapter>(`/api/ai/chapter?bookId=${encodeURIComponent(book.bookId)}&chapterId=${encodeURIComponent(chapterId!)}`, undefined, controller.signal);
+        if (controller.signal.aborted) return;
+        setAiChapter(value); setAiError('');
+        if (value.state === 'running') timer = setTimeout(poll, value.progress?.phase === 'receiving' || value.progress?.phase === 'validating' ? 80 : 350);
+      } catch (e) { if (!controller.signal.aborted) setAiError(message(e)); }
+    }
+    void poll(); return () => { controller.abort(); clearTimeout(timer); };
+  }, [chapterId, book.bookId, aiRefresh]);
+  function discardAiEdit() {
+    if (aiDirty && !window.confirm('有未保存的修改，放弃修改并继续？')) return false;
+    if (aiDirty) { setAiDirty(false); setAiEditorKey(v => v + 1); }
+    return true;
+  }
+  async function startAi(replace = false) {
+    if (!preview || chapterId === null || !discardAiEdit()) return;
+    if (!aiConfigured) { onOpenModels(); return; }
+    if (replace && aiChapter?.notes.some(n => n.edited && n.status === 'ready') && !window.confirm('重新整理会替换未同步的整理结果及手动修改。成功后才替换，失败保留旧结果。继续？')) return;
+    const target = chapterId;
+    setAiBusy(true); setAiError('');
+    const controller = new AbortController(); browserAi.current = controller;
+    try {
+      const result = await exclusive(() => startChapterAi({ previewId: preview.previewId, bookId: book.bookId, chapterId: target, replaceConfirmed: true, deepThinking: aiThinkingControl && deepThinking }, request, fresh => {
+        if (alive.current && activeChapter.current === target) {
+          setPreview(fresh);
+          setSelected(old => new Set([...old].filter(id => fresh.notes.some(n => n.id === id && n.status === 'ready'))));
+        }
+      }, state => {
+        if (alive.current && activeChapter.current === target) {
+          setAiChapter(state); setAiView(true); setTab('ready'); setAiSelected([]);
+        }
+      }, controller.signal));
+      if (!alive.current || activeChapter.current !== target) return;
+      followWriting.current = true; setFollowing(true);
+      setAiChapter(result); setAiView(true); setTab('ready'); setAiSelected([]); setAiRefresh(v => v + 1);
+    } catch(e) { if (alive.current && activeChapter.current === target) setAiError(message(e)); }
+    finally { if (alive.current) setAiBusy(false); }
+  }
+  function changeAiView(showOrganized: boolean) {
+    if (aiView === showOrganized || !discardAiEdit()) return;
+    setAiView(showOrganized);
+  }
+  async function refreshOriginals() {
+    if (!preview) return;
+    try {
+      const result = await exclusive(() => request<{ notes: PreviewNote[] }>('/api/ai/refresh-preview', { previewId: preview.previewId }));
+      if (alive.current) { setPreview(p => p ? { ...p, notes: result.notes } : p); setSelected(old => new Set([...old].filter(id => result.notes.some(n => n.id === id && n.status === 'ready')))); }
+    } catch(e) { if (alive.current) setActionError(message(e)); }
+    onSynced();
+  }
+  function aiChanged(value: AiChapter) { setAiChapter(value); void refreshOriginals(); }
+  async function sendAi() {
+    if (chapterId === null || !aiSelected.length || aiRunning) return;
+    setAiBusy(true); setActionError('');
+    try {
+      const result = await exclusive(() => request<{ chapter: AiChapter; error: string }>('/api/ai/send', { bookId: book.bookId, chapterId, ids: aiSelected, confirmed: true }));
+      if (!alive.current) return;
+      setAiChapter(result.chapter); setAiSelected(old => old.filter(id => result.chapter.notes.some(n => n.id === id && n.status === 'ready'))); setActionError(result.error);
+      await refreshOriginals();
+    } catch(e) { if (alive.current) { setActionError(message(e)); setAiRefresh(v => v + 1); } }
+    finally { if (alive.current) setAiBusy(false); }
+  }
   const heading = useRef<HTMLHeadingElement>(null);
   const content = useRef<HTMLElement>(null);
+  const followWriting = useRef(true);
+  const previousScroll = useRef(0);
+  const wasWriting = useRef(false);
+  const scrollFrame = useRef<number | null>(null);
+  function cancelFollowAnimation() {
+    if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
+    scrollFrame.current = null;
+  }
+  function animateToWriting() {
+    cancelFollowAnimation();
+    const step = () => {
+      const node = content.current;
+      if (!node || !followWriting.current) { scrollFrame.current = null; return; }
+      const gap = node.scrollHeight - node.clientHeight - node.scrollTop;
+      if (node.scrollTop < previousScroll.current - 2 && gap > 2) {
+        followWriting.current = false; setFollowing(false); scrollFrame.current = null; return;
+      }
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      node.scrollTop += reduce || gap <= 2 ? gap : Math.min(80, Math.max(1, gap * .25));
+      previousScroll.current = node.scrollTop;
+      scrollFrame.current = reduce || gap <= 2 ? null : requestAnimationFrame(step);
+    };
+    scrollFrame.current = requestAnimationFrame(step);
+  }
+  useEffect(() => () => cancelFollowAnimation(), []);
+  const [following, setFollowing] = useState(true);
+  const writingRevision = JSON.stringify(aiChapter?.drafts ?? []);
+  useLayoutEffect(() => { cancelFollowAnimation(); followWriting.current = true; setFollowing(true); previousScroll.current = content.current?.scrollTop ?? 0; }, [chapterId, aiView]);
+  useLayoutEffect(() => {
+    const writing = aiView && aiChapter?.state === 'running';
+    const justCompleted = aiView && wasWriting.current && aiChapter?.state === 'ready';
+    if ((writing || justCompleted) && followWriting.current && content.current) {
+      const node = content.current;
+      const gap = node.scrollHeight - node.clientHeight - node.scrollTop;
+      // Respect an upward gesture even when its queued scroll event has not fired yet.
+      if (node.scrollTop < previousScroll.current - 2 && gap > 2) {
+        followWriting.current = false; setFollowing(false);
+      } else animateToWriting();
+      previousScroll.current = node.scrollTop;
+    }
+    wasWriting.current = writing;
+  }, [writingRevision, aiChapter?.state, aiView]);
+  function stopFollowing() {
+    if (!aiView) return;
+    cancelFollowAnimation(); followWriting.current = false; setFollowing(false);
+  }
+  function handleScroll() {
+    showScrollbar();
+    const node = content.current;
+    if (!node) return;
+    if ((aiRunning || scrollFrame.current !== null) && aiView) {
+      const gap = node.scrollHeight - node.scrollTop - node.clientHeight;
+      // Removing the sticky return button can clamp scrollTop downward. That is not a user scroll.
+      if (gap <= 2) { followWriting.current = true; setFollowing(true); }
+      else if (node.scrollTop < previousScroll.current - 2) stopFollowing();
+      else if (gap < 28) { followWriting.current = true; setFollowing(true); }
+    }
+    previousScroll.current = node.scrollTop;
+  }
+  function returnToWriting() {
+    followWriting.current = true; setFollowing(true);
+    if (content.current) { previousScroll.current = content.current.scrollTop; animateToWriting(); }
+  }
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (scrollTimer.current) clearTimeout(scrollTimer.current); }, []);
   function showScrollbar() {
@@ -81,34 +233,38 @@ export function NotesPage({ book, sendingEnabled, onNavigationStateChange, onOpe
     sent: notes.filter(n => n.status === 'sent'),
     uncertain: notes.filter(n => n.status === 'uncertain' || n.status === 'sending'),
   };
-  const chapters = [...new Map(notes.map(n => [n.chapter.id, n.chapter])).values()];
+  const chapters = [...new Map([...savedChapters.map(c => [c.id, c] as const), ...notes.map(n => [n.chapter.id, n.chapter] as const)]).values()].sort((a, b) => a.order - b.order);
+  useEffect(() => { if (chapterId === null && chapters.length) setChapterId(chapters[0].id); }, [chapterId, chapters]);
   const chapterIndex = Math.max(0, chapters.findIndex(c => c.id === chapterId));
   const chapter = chapters[chapterIndex];
   const visible = groups[tab].filter(n => n.chapter.id === chapter?.id);
   useEffect(() => { if (preview) onCounted(book.bookId, preview.notes.filter(n => n.status === 'ready').reduce((sum, n) => sum + n.sources, 0)); }, [preview]);
   const sending = phase === 'sending';
-  const busy = loading || sending || resolveBusy || deleteBusy || editing !== null;
-  useEffect(() => { onNavigationStateChange({ busy, selected: selected.size }); }, [busy, selected.size, onNavigationStateChange]);
+  const busy = loading || sending || resolveBusy || deleteBusy || editing !== null || aiBusy;
+  const aiVisible = aiChapter?.notes.filter(n => tab === 'uncertain' ? n.status === 'uncertain' || n.status === 'sending' : n.status === tab) ?? [];
+  useEffect(() => { onNavigationStateChange({ busy, selected: selected.size + aiSelected.length, dirty: aiDirty }); }, [busy, selected.size, aiSelected.length, aiDirty, onNavigationStateChange]);
   useEffect(() => {
-    if (!selected.size && !sending && !resolveBusy && !editing) return;
+    if (!selected.size && !sending && !resolveBusy && !editing && !aiDirty && !aiBusy && !aiSelected.length) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, [selected.size, sending, resolveBusy, editing]);
+  }, [selected.size, sending, resolveBusy, editing, aiDirty, aiBusy, aiSelected.length]);
   useEffect(() => { content.current?.scrollTo(0, 0); heading.current?.focus({ preventScroll: true }); }, [chapterId, tab, loading]);
 
   function close() {
-    if (!busy && (!selected.size || window.confirm('离开后不会保留已选笔记，确定返回书架？'))) onClose();
+    if (!busy && discardAiEdit() && (!(selected.size + aiSelected.length) || window.confirm('离开后不会保留已选笔记，确定返回书架？'))) onClose();
   }
   function changeTab(next: Tab) {
+    if (!discardAiEdit()) return;
     setTab(next); setResolving(null);
-    if (!groups[next].some(n => n.chapter.id === chapter?.id)) setChapterId(groups[next][0]?.chapter.id ?? null);
+    if (!aiView && !groups[next].some(n => n.chapter.id === chapter?.id)) setChapterId(groups[next][0]?.chapter.id ?? null);
   }
   function changeChapter(index: number) {
+    if (!discardAiEdit()) return;
     setChapterId(chapters[index].id); setResolving(null);
   }
   function reload() {
-    if (!selected.size || window.confirm('重新拉取会清空已选笔记，继续？')) void load();
+    if (discardAiEdit() && (!selected.size || window.confirm('重新拉取会清空已选笔记，继续？'))) { void load(); setAiRefresh(v => v + 1); }
   }
 
   function toggle(id: string) {
@@ -135,7 +291,7 @@ export function NotesPage({ book, sendingEnabled, onNavigationStateChange, onOpe
         uncertain: ids.filter(id => status.get(id) === 'uncertain').length,
         remaining, error: result.deliveryError,
       });
-      onSynced();
+      onSynced(); setAiRefresh(v => v + 1);
     } catch (e) { if (alive.current) setActionError(message(e)); }
     finally { if (alive.current) setPhase('idle'); }
   }
@@ -145,7 +301,7 @@ export function NotesPage({ book, sendingEnabled, onNavigationStateChange, onOpe
     try {
       const result = await exclusive(() => request<{ notes: PreviewNote[] }>('/api/resolve', { previewId: preview.previewId, ...resolving }));
       if (!alive.current) return;
-      setPreview({ ...preview, notes: result.notes }); setResolving(null); onSynced();
+      setPreview({ ...preview, notes: result.notes }); setResolving(null); onSynced(); setAiRefresh(v => v + 1);
       if (!result.notes.some(n => n.status === 'uncertain')) setTab(resolving.delivered ? 'sent' : 'ready');
     } catch (e) { if (alive.current) setActionError(message(e)); }
     finally { if (alive.current) setResolveBusy(false); }
@@ -209,18 +365,34 @@ export function NotesPage({ book, sendingEnabled, onNavigationStateChange, onOpe
 
     {preview && <>
       <div className="tabs" role="group" aria-label="笔记状态">
-        {(['ready', 'sent', 'uncertain'] as Tab[]).filter(t => t !== 'uncertain' || groups.uncertain.length).map(t =>
+        {(['ready', 'sent', 'uncertain'] as Tab[]).filter(t => t !== 'uncertain' || (aiView ? aiChapter?.notes.some(n => n.status === 'uncertain' || n.status === 'sending') : groups.uncertain.length)).map(t =>
           <button key={t} type="button" aria-pressed={tab === t} disabled={busy} className={`tab tab-${t}`} onClick={() => changeTab(t)}>
-            {{ ready: '未同步', sent: '已同步', uncertain: '需核对' }[t]}<span>{groups[t].length}</span>
+            {{ ready: '未同步', sent: '已同步', uncertain: '需核对' }[t]}<span>{aiView ? aiChapter?.notes.filter(n => t === 'uncertain' ? n.status === 'uncertain' || n.status === 'sending' : n.status === t).length ?? 0 : groups[t].length}</span>
           </button>)}
       </div>
 
-      <section ref={content} className="review-content" onScroll={showScrollbar} aria-busy={loading}>
+      <section ref={content} className="review-content" onScroll={handleScroll} onWheel={e => { if (e.deltaY < 0) stopFollowing(); }} onKeyDown={e => { if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) stopFollowing(); }} aria-busy={loading}>
         {chapter && <header className="chapter-heading">
-          <span className="chapter-progress">{chapterIndex + 1} / {chapters.length}</span>
-          <h2 ref={heading} tabIndex={-1}>{chapter.title}</h2>
-          <span className="chapter-count">{visible.length} 条</span>
+          <div className="chapter-identity"><h2 ref={heading} tabIndex={-1}>{chapter.title}</h2><div className="chapter-meta"><span className="chapter-progress">第 {chapterIndex + 1} / {chapters.length} 章</span>{!aiRunning && <><span className="chapter-meta-dot" aria-hidden="true">·</span><span className="chapter-count">{aiView ? aiVisible.length : visible.length} 条{aiView ? '结果' : '笔记'}</span></>}</div></div>
+          <div className="chapter-tools">
+            {aiChapter && (aiChapter.notes.length > 0 || aiRunning || aiChapter.state === 'failed') ? <div className="chapter-view-switch" role="group" aria-label="笔记视图">
+              <button type="button" aria-pressed={!aiView} disabled={busy} onClick={() => changeAiView(false)}>原始笔记</button>
+              <div className={`chapter-ai-view${aiView ? ' is-active' : ''}`}>
+                <button type="button" aria-pressed={aiView} disabled={busy} onClick={() => changeAiView(true)}><Sparkles size={14} aria-hidden="true" />AI 整理{aiRunning && <span className="chapter-running-dot" aria-label="正在整理" />}</button>
+                {aiView && aiChapter.state === 'ready' && <button type="button" className="chapter-regenerate" aria-label="重新整理本章" title="重新整理本章" disabled={busy} onClick={() => void startAi(true)}><RefreshCw size={14} aria-hidden="true" /></button>}
+              </div>
+            </div> : <>
+              {aiThinkingControl && <select className="ai-mode-select" aria-label="整理模式" value={deepThinking ? 'deep' : 'fast'} disabled={busy} onChange={e => setDeepThinking(e.target.value === 'deep')}><option value="fast">快速整理</option><option value="deep">深度思考</option></select>}
+              <button type="button" className="chapter-organize-button" disabled={busy || !aiChapter} onClick={() => void startAi()}><Sparkles size={14} aria-hidden="true" />AI 整理本章</button>
+            </>}
+            {aiView && aiChapter?.state === 'ready' && aiThinkingControl && <select className="ai-mode-select" aria-label="下次整理模式" value={deepThinking ? 'deep' : 'fast'} disabled={busy} onChange={e => setDeepThinking(e.target.value === 'deep')}><option value="fast">快速整理</option><option value="deep">深度思考</option></select>}
+          </div>
         </header>}
+        {aiView && aiRunning && <AiWriting drafts={aiChapter?.drafts ?? []} phase={aiChapter?.progress?.phase} bookTitle={book.title} chapterTitle={chapter?.title ?? ''} />}
+        {aiView && aiRunning && !following && <button type="button" className="ai-follow-button" onClick={returnToWriting}><ArrowDown size={14} />回到生成位置</button>}
+        {(aiChapter?.state === 'failed' || aiError) && <div className="ai-task-state" role="status"><span>{aiError || aiChapter?.error}</span>{(aiError || !aiRunning) && <button type="button" className="text-button" disabled={busy} onClick={() => aiError ? setAiRefresh(v => v + 1) : void startAi(true)}>{aiError ? '刷新状态' : '重试'}</button>}</div>}
+        {aiView && !aiRunning && <AiChapterNotes key={`${chapterId}:${aiEditorKey}`} cards={aiVisible} selected={aiSelected} locked={busy || aiRunning} bookId={book.bookId} chapterId={chapter?.id ?? ''} onToggle={id => setAiSelected(old => old.includes(id) ? old.filter(n => n !== id) : old.length < LIMIT ? [...old, id] : old)} onChanged={aiChanged} onEditing={setAiDirty} onBusy={setAiBusy} />}
+        {!aiView && <>
         {preview.warnings.length > 0 && <div className="notice" role="status">{preview.warnings.join('；')}。数量以下方列表为准。</div>}
         {tab === 'uncertain' && <p className="hint uncertain-hint">这些笔记发送时没有收到 flomo 的成功回执，可能已经写入。请到 flomo 搜索确认后选择处理方式，系统不会自动重发。</p>}
         {!visible.length && <p className="drawer-empty-small">{{
@@ -268,11 +440,12 @@ export function NotesPage({ book, sendingEnabled, onNavigationStateChange, onOpe
             </li>;
           })}
         </ol>
+        </>}
       </section>
 
       <footer className="action-bar review-footer" aria-live="polite">
         {actionError && <p className="bar-message error-text" role="alert">{actionError}</p>}
-        {outcome && <p className={`bar-message ${outcome.uncertain || outcome.error ? 'error-text' : 'success-text'}`} role="status">
+        {!aiView && outcome && <p className={`bar-message ${outcome.uncertain || outcome.error ? 'error-text' : 'success-text'}`} role="status">
           {outcome.sent > 0 && `已发送 ${outcome.sent} 条。`}
           {outcome.uncertain > 0 && `${outcome.uncertain} 条结果不确定，已停止；请在“需核对”中处理。`}
           {outcome.error && !outcome.uncertain && outcome.error}
@@ -283,12 +456,12 @@ export function NotesPage({ book, sendingEnabled, onNavigationStateChange, onOpe
                 <button type="button" className="text-button" disabled={busy || chapterIndex === 0} onClick={() => changeChapter(chapterIndex - 1)}><ChevronLeft size={16} aria-hidden="true" />上一章</button>
                 <button type="button" className="text-button" disabled={busy || chapterIndex >= chapters.length - 1} onClick={() => changeChapter(chapterIndex + 1)}>下一章<ChevronRight size={16} aria-hidden="true" /></button>
               </nav>
-              <p>{sending ? `正在发送 ${selected.size} 条，请勿关闭页面…`
+              <p>{aiView ? aiBusy ? '正在处理，请勿重复操作…' : <>已选 <strong>{aiSelected.length}</strong> 条{!sendingEnabled && <> · <button type="button" className="link-button" onClick={() => { if (discardAiEdit()) onOpenSettings(); }}>配置 flomo</button></>}</> : sending ? `正在发送 ${selected.size} 条，请勿关闭页面…`
                 : !sendingEnabled ? <>还没连接 flomo，<button type="button" className="link-button" onClick={() => { if (!selected.size || window.confirm('前往设置会清空已选笔记，继续？')) onOpenSettings(); }}>去设置</button></>
                 : tab === 'ready' ? <>已选 <strong>{selected.size}</strong> 条{selected.size >= LIMIT && '（单次上限 100 条）'}</>
                 : `未同步 ${groups.ready.length} 条`}</p>
               <div className="bar-buttons">
-                <button type="button" className="primary" disabled={busy || !selected.size || !sendingEnabled} onClick={send}>{sending ? '发送中…' : `发送到 flomo${selected.size ? ` · ${selected.size}` : ''}`}</button>
+                <button type="button" className="primary" disabled={busy || !sendingEnabled || (aiView ? aiRunning || aiDirty || !aiSelected.length : !selected.size)} onClick={aiView ? sendAi : send}>{aiView ? `同步到 flomo${aiSelected.length ? ` · ${aiSelected.length}` : ''}` : sending ? '发送中…' : `发送到 flomo${selected.size ? ` · ${selected.size}` : ''}`}</button>
               </div>
             </div>
       </footer>

@@ -21,7 +21,11 @@ public class NotebookService {
     public NotebookService(RemoteApis remote,Normalizer normalizer,Ledger ledger,Credentials credentials) {
         this.remote=remote; this.normalizer=normalizer; this.ledger=ledger; this.credentials=credentials;
     }
-    private <T> T exclusive(Supplier<T> work) {
+    <T> T serialized(Supplier<T> work) {
+        operation.lock();
+        try { return work.get(); } finally { operation.unlock(); }
+    }
+    <T> T exclusive(Supplier<T> work) {
         if(!operation.tryLock()) throw new ApiException(409,"已有任务正在执行，请结束后再操作或修改凭证");
         try { return work.get(); } finally { operation.unlock(); }
     }
@@ -79,6 +83,23 @@ public class NotebookService {
             if(previews.size()>=10) previews.remove(previews.keySet().iterator().next());
             previews.put(id,new Preview(user,book,data,Instant.now().plusSeconds(1800)));
             return new PreviewResponse(id,book,data.warnings(),statuses(user,data.notes()));
+        });
+    }
+    public AiModels.Snapshot aiSnapshot(UUID user,String previewId,String chapterId) {
+        return exclusive(() -> {
+            Preview preview=previews.get(previewId);
+            if(preview==null || !preview.owner().equals(user) || preview.expires().isBefore(Instant.now())) throw new ApiException(409,"预览已过期，请重新拉取");
+            var thoughts=ledger.thoughts(user); var dismissed=ledger.dismissedSources(user);
+            var ready=preview.data().notes().stream().filter(n -> n.chapter().id().equals(chapterId) && Collections.disjoint(n.sourceKeys(),dismissed) && ledger.status(user,n).equals("ready")).map(n -> withThought(n,thoughts)).toList();
+            if(ready.isEmpty()) throw new ApiException(400,"本章没有可重新整理的笔记");
+            return new AiModels.Snapshot(preview.book(),ready.getFirst().chapter(),ready);
+        });
+    }
+    public List<PreviewNote> refreshPreview(UUID user,String previewId) {
+        return exclusive(() -> {
+            var preview=previews.get(previewId);
+            if(preview==null || !preview.owner().equals(user)) throw new ApiException(409,"预览已过期，请重新拉取");
+            return statuses(user,preview.data().notes());
         });
     }
     public SendResult send(UUID user,SendRequest request) {

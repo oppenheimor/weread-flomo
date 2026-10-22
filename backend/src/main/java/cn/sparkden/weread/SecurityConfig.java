@@ -42,7 +42,7 @@ public class SecurityConfig {
         http.exceptionHandling(errors -> errors
             .authenticationEntryPoint((req,res,error) -> json(res,401,"{\"error\":\"请先登录\"}"))
             .accessDeniedHandler((req,res,error) -> json(res,403,"{\"error\":\"请求校验失败，请刷新页面后重试\"}")));
-        http.headers(headers -> headers.contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.weread.qq.com https://wfqqreader-1252317822.image.myqcloud.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")));
+        http.headers(headers -> headers.contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.weread.qq.com https://wfqqreader-1252317822.image.myqcloud.com; connect-src 'self' http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")));
         http.addFilterBefore(new OncePerRequestFilter() {
             @Override protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain) throws ServletException, IOException {
                 String supplied = req.getHeader("Origin");

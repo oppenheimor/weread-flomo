@@ -58,6 +58,27 @@ public class Ledger {
             else { db.update("DELETE FROM delivery_source WHERE user_id=? AND note_id=?",user,id); db.update("DELETE FROM delivery WHERE user_id=? AND note_id=? AND status='uncertain'",user,id); }
         }
     }
+    public String ownStatus(UUID user,String id) {
+        var values=db.queryForList("SELECT status FROM delivery WHERE user_id=? AND note_id=?",String.class,user,id);
+        return values.isEmpty()?"ready":values.getFirst();
+    }
+    /** Organized results have their own delivery identity. Previously sent originals never block them. */
+    @Transactional public void reserveOrganized(UUID user,String id,String content,List<Note> sources) {
+        guard.check();
+        if(!ownStatus(user,id).equals("ready")) throw new ApiException(409,"这条整理结果已发送或需核对");
+        for(var source:sources) if(Set.of("sending","uncertain").contains(status(user,source))) throw new ApiException(409,"来源存在需核对的发送，请先处理");
+        db.update("INSERT INTO delivery(user_id,note_id,content,status) VALUES (?,?,?,'sending')",user,id,content);
+        for(var source:sources) for(String key:source.sourceKeys()) {
+            // Unique source ledger keeps already-sent history unchanged; only ready sources are reserved.
+            db.update("INSERT INTO delivery_source(user_id,source_key,note_id) VALUES (?,?,?) ON CONFLICT(user_id,source_key) DO NOTHING",user,key,id);
+        }
+    }
+    @Transactional public void resolveOrganized(UUID user,String id,boolean delivered) {
+        guard.check();
+        if(!ownStatus(user,id).equals("uncertain")) throw new ApiException(409,"这条结果不处于需核对状态");
+        if(delivered) finish(user,id,"sent");
+        else { db.update("DELETE FROM delivery_source WHERE user_id=? AND note_id=?",user,id); db.update("DELETE FROM delivery WHERE user_id=? AND note_id=? AND status='uncertain'",user,id); }
+    }
     public void finish(UUID user,String id,String status) {
         if(!Set.of("sent","uncertain").contains(status)) throw new IllegalArgumentException();
         if(db.update("UPDATE delivery SET status=?,updated_at=now() WHERE user_id=? AND note_id=?",status,user,id)!=1) throw new IllegalStateException("发送账本记录缺失");

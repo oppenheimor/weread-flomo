@@ -32,6 +32,7 @@ logging:
   level:
     org.springframework.security: WARN
 app:
+  ai-trusted-hosts: ${AI_TRUSTED_HOSTS:}
   public-origin: ${APP_PUBLIC_ORIGIN:http://127.0.0.1:18081}
   admin-username: ${ADMIN_USERNAME:}
   admin-password: ${ADMIN_PASSWORD:}

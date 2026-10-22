@@ -1,0 +1,49 @@
+/* Paper-like controls: chapter metadata on the left, view and action on the right. */
+.review-page .chapter-heading {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  gap: 16px 24px; margin: 0 16px 22px;
+}
+.chapter-identity { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 14px; min-width: 0; flex: 1 1 220px; }
+.review-page .chapter-identity h2 { flex: none; max-width: 100%; margin: 0; font-size: 20px; font-weight: 600; line-height: 1.5; }
+.chapter-meta { display: inline-flex; align-items: baseline; gap: 8px; color: var(--muted); }
+.chapter-meta .chapter-progress, .chapter-meta .chapter-count { margin: 0; font-size: 12px; line-height: 20px; }
+.chapter-meta-dot { font-size: 12px; }
+.chapter-tools { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; }
+.chapter-view-switch { display: inline-flex; align-items: center; gap: 8px; padding: 0; background: transparent; }
+.review-page .chapter-view-switch button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  box-sizing: border-box; min-height: 36px; padding: 7px 13px;
+  border: 1px solid transparent; border-radius: 8px;
+  background: transparent; color: var(--muted); box-shadow: none;
+  font: inherit; font-size: 13px; font-weight: 500; line-height: 20px;
+  transition: color 150ms ease-out, border-color 150ms ease-out;
+}
+.review-page .chapter-view-switch button:hover:not(:disabled) { color: var(--ink); background: transparent; }
+.review-page .chapter-view-switch > button[aria-pressed="true"] { color: var(--ink); background: var(--note-paper); border-color: var(--line); }
+.chapter-ai-view { display: inline-flex; align-items: center; box-sizing: border-box; border: 1px solid transparent; border-radius: 8px; }
+.chapter-ai-view.is-active { background: var(--note-paper); border-color: var(--line); }
+.review-page .chapter-ai-view button { min-height: 34px; border: 0; background: transparent; }
+.review-page .chapter-ai-view button[aria-pressed="true"] { color: var(--ink); background: transparent; }
+.review-page .chapter-ai-view .chapter-regenerate {
+  position: relative; width: 34px; margin: 0; padding: 7px;
+  border-radius: 0 7px 7px 0; color: var(--muted);
+}
+.chapter-regenerate::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 1px; background: var(--line); }
+.review-page .chapter-ai-view .chapter-regenerate:hover:not(:disabled) { color: var(--ink); background: color-mix(in oklch, var(--ink) 5%, transparent); }
+.review-page .chapter-organize-button {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 7px 13px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--note-paper); color: var(--ink);
+  box-shadow: none; font: inherit; font-size: 13px; font-weight: 500; line-height: 20px;
+}
+.review-page .chapter-organize-button:hover:not(:disabled) { border-color: var(--muted); }
+.chapter-running-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.review-page .ai-mode-select { width: auto; min-height: 36px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--note-paper); color: var(--muted); font: inherit; font-size: 13px; line-height: 20px; }
+.chapter-tools :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.chapter-tools button:disabled { cursor: not-allowed; opacity: .5; }
+@media (prefers-reduced-motion: reduce) { .review-page .chapter-view-switch button { transition: none; } }
+@media (max-width: 620px) {
+  .review-page .chapter-heading { gap: 12px; margin: 0 4px 18px; }
+  .review-page .chapter-identity h2 { font-size: 18px; }
+  .chapter-identity { flex-basis: 100%; }
+  .chapter-tools { width: 100%; justify-content: flex-end; gap: 10px; }
+}

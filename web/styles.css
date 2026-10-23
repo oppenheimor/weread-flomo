@@ -126,14 +126,20 @@ input[aria-invalid="true"]:not([type="checkbox"]) { border-color: var(--danger);
 .loading-book { position: relative; display: inline-block; width: 24px; height: 20px; flex: 0 0 24px; color: var(--accent); perspective: 80px; }
 .loading-book::before, .loading-book::after { content: ""; position: absolute; top: 2px; width: 11px; height: 16px; border: 1px solid currentColor; background: var(--paper); }
 .loading-book::before { left: 1px; border-radius: 3px 1px 1px 3px; transform: skewY(8deg); opacity: .5; }
-.loading-book::after { left: 12px; border-radius: 1px 3px 3px 1px; transform-origin: left center; animation: login-page-turn 1.8s ease-in-out infinite; }
+.loading-book::after {
+  left: 12px; border-radius: 1px 3px 3px 1px; transform-origin: left center;
+  will-change: transform, opacity;
+  animation: login-page-turn 1.6s linear infinite;
+}
+/* Continuous rotation; both sides of the loop boundary are invisible, hiding the reset. */
 @keyframes login-page-turn {
-  0%, 15% { transform: rotateY(0deg) skewY(-8deg); opacity: .7; }
-  65%, 85% { transform: rotateY(-150deg) skewY(-8deg); opacity: .4; }
+  0% { transform: rotateY(0deg) skewY(-8deg); opacity: 0; }
+  10% { transform: rotateY(-18deg) skewY(-8deg); opacity: .7; }
+  90% { transform: rotateY(-162deg) skewY(-8deg); opacity: .7; }
   100% { transform: rotateY(-180deg) skewY(-8deg); opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .loading-book::after { animation: none; transform: skewY(-8deg); opacity: .7; }
+  .loading-book::after { animation: none; will-change: auto; transform: skewY(-8deg); opacity: .7; }
 }
 .login-page form { display: grid; gap: 10px; margin-top: 28px; }
 .login-page label { font-size: .8125rem; color: var(--muted); }

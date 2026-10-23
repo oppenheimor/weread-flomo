@@ -48,15 +48,14 @@ export async function startChapterAi(
   signal?: AbortSignal,
 ): Promise<AiChapter> {
   const payload = { previewId: input.previewId, chapterId: input.chapterId, replaceConfirmed: input.replaceConfirmed, deepThinking: input.deepThinking ?? false };
-  let result: AiChapter | BrowserJob;
-  try { result = await invoke('/api/ai/start', payload) as AiChapter | BrowserJob; }
-  catch (error) {
-    // Only retry an expired preview, before a task was created. Never retry generation.
-    if (!(error instanceof Error) || error.message !== '预览已过期，请重新拉取') throw error;
-    await invoke('/api/books', {});
-    const fresh = await invoke('/api/preview', { bookId: input.bookId }) as PreviewResponse;
-    onPreview(fresh);
-    result = await invoke('/api/ai/start', { ...payload, previewId: fresh.previewId }) as AiChapter | BrowserJob;
+  // Always fetch current annotations, even when the old preview has not expired.
+  await invoke('/api/books', {});
+  const fresh = await invoke('/api/preview', { bookId: input.bookId }) as PreviewResponse;
+  onPreview(fresh);
+  if (!fresh.notes.some(note => note.chapter.id === input.chapterId && note.status === 'ready')) {
+    return await invoke(`/api/ai/chapter?bookId=${encodeURIComponent(input.bookId)}&chapterId=${encodeURIComponent(input.chapterId)}`, undefined) as AiChapter;
   }
+  // Never retry a task whose start acknowledgement may have been lost.
+  const result = await invoke('/api/ai/start', { ...payload, previewId: fresh.previewId }) as AiChapter | BrowserJob;
   return 'mode' in result && result.mode === 'browser' ? runBrowserJob(result, invoke, onState, signal) : result as AiChapter;
 }

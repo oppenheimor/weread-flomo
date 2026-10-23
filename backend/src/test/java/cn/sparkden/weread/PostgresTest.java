@@ -175,7 +175,10 @@ class PostgresTest {
             assertTrue(service.state(aiUser(),"b","c").notes().isEmpty());
             service.update(user,new AiModels.Update("b","c",card.id(),"手动标题","手动正文",card.version()));
             assertThrows(ApiException.class,() -> service.update(user,new AiModels.Update("b","c",card.id(),"旧版本","正文",card.version())));
-            assertThrows(ApiException.class,() -> service.start(user,new AiModels.Start("preview","c",false)));
+            var unchanged=(AiModels.ChapterState)service.start(user,new AiModels.Start("preview","c",false));
+            assertEquals(card.id(),unchanged.notes().getFirst().id());
+            assertEquals("手动正文",unchanged.notes().getFirst().body());
+            org.mockito.Mockito.verify(transport,org.mockito.Mockito.times(1)).generateStreaming(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.any());
             org.mockito.Mockito.when(transport.generateStreaming(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyInt(),org.mockito.ArgumentMatchers.any())).thenReturn("{\"groups\":[]}");
             service.start(user,new AiModels.Start("preview","c",true)); state=waitAi(service,user);
             assertEquals("failed",state.state()); assertEquals("手动正文",state.notes().getFirst().body());

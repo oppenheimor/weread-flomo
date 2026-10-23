@@ -18,6 +18,20 @@ export function ChapterMenu({ chapters, currentId, disabled, onChange }: Props) 
   const search = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [scrolling, setScrolling] = useState(false);
+  const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function revealScrollbar() {
+    setScrolling(true);
+    if (scrollTimer.current !== null) clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => { setScrolling(false); scrollTimer.current = null; }, 700);
+  }
+  useEffect(() => {
+    setScrolling(false);
+    return () => {
+      if (scrollTimer.current !== null) clearTimeout(scrollTimer.current);
+      scrollTimer.current = null;
+    };
+  }, [open]);
   const searchable = chapters.length > 12;
   const filtered = chapters.map((chapter, index) => ({ ...chapter, index }))
     .filter(chapter => !query.trim() || chapter.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()) || String(chapter.index + 1) === query.trim());
@@ -86,7 +100,7 @@ export function ChapterMenu({ chapters, currentId, disabled, onChange }: Props) 
       {searchable && <label className="chapter-menu-search"><Search size={15} aria-hidden="true" />
         <input ref={search} type="search" value={query} onChange={event => { setQuery(event.target.value); if (list.current) list.current.scrollTop = 0; }} placeholder="搜索章节名称或序号" aria-label="搜索章节名称或序号" />
       </label>}
-      <div ref={list} className="chapter-menu-list">
+      <div ref={list} className={`chapter-menu-list${scrolling ? ' is-scrolling' : ''}`} onScroll={revealScrollbar}>
         {filtered.map(chapter => <button key={chapter.id} type="button" className="text-button"
           aria-current={chapter.id === currentId ? 'true' : undefined}
           onClick={() => { close(); trigger.current?.focus(); onChange(chapter.index); }}>

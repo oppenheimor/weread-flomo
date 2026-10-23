@@ -56,12 +56,13 @@ public class AiService {
     public Object start(UUID user,Start request) {
         return notebook.exclusive(() -> {
             expireBrowserJobs(user);
-            var snap=notebook.aiSnapshot(user,request.previewId(),request.chapterId());
-            String book=snap.book().bookId(),chapter=snap.chapter().id();
+            var available=notebook.aiSnapshot(user,request.previewId(),request.chapterId());
+            String book=available.book().bookId(),chapter=available.chapter().id();
             editable(user,book,chapter);
             var old=cards(user,book,chapter);
             if(old.stream().anyMatch(c -> Set.of("uncertain","sending").contains(c.status()))) throw new ApiException(409,"请先核对本章发送结果，再重新整理");
-            if(old.stream().anyMatch(c -> c.edited() && c.status().equals("ready")) && !request.replaceConfirmed()) throw new ApiException(409,"重新整理会覆盖已编辑的结果，请确认后继续");
+            var snap=incrementalSnapshot(available,old,request.replaceConfirmed());
+            if(snap.notes().isEmpty()) return state(user,book,chapter);
             if(db.queryForObject("SELECT count(*) FROM ai_chapter WHERE user_id=? AND state='running'",Integer.class,user)>=2) throw new ApiException(429,"最多同时整理两个章节，请稍后再试");
             var settings=providers.settings(user);
             if(settings.defaultModel()!=null && settings.defaultModel().providerId().equals("magpie")) {
@@ -83,6 +84,20 @@ public class AiService {
             } catch(RuntimeException e) { capacity.release(); fail(user,book,chapter,job,"任务未能启动，请重试"); throw e; }
             return state(user,book,chapter);
         });
+    }
+    // Ordinary clicks append only unseen sources; confirmed regeneration replaces pending results.
+    static Snapshot incrementalSnapshot(Snapshot available,List<Card> existing,boolean regenerate) {
+        if(regenerate) return available;
+        var covered=new HashSet<String>();
+        for(var card:existing) for(var note:card.snapshot().notes()) covered.addAll(note.sourceKeys());
+        return new Snapshot(available.book(),available.chapter(),available.notes().stream()
+            .filter(note -> Collections.disjoint(note.sourceKeys(),covered)).toList());
+    }
+    static boolean replacedBy(Card card,Snapshot generated) {
+        if(!card.status().equals("ready")) return false;
+        var sources=new HashSet<String>();
+        for(var note:generated.notes()) sources.addAll(note.sourceKeys());
+        return card.snapshot().notes().stream().anyMatch(note -> !Collections.disjoint(note.sourceKeys(),sources));
     }
     private void run(UUID user,Snapshot snap,Connection connection,String prompt,UUID job) {
         try {
@@ -108,7 +123,7 @@ public class AiService {
                 int current=db.queryForObject("SELECT count(*) FROM ai_chapter WHERE user_id=? AND book_id=? AND chapter_id=? AND job_id=? AND state='running'",Integer.class,user,snap.book().bookId(),snap.chapter().id(),job);
                 if(current!=1) return null;
                 // Sent/uncertain results remain immutable history, including independent notes sent through the original view.
-                for(var card:cards(user,snap.book().bookId(),snap.chapter().id())) if(card.status().equals("ready")) db.update("DELETE FROM ai_note WHERE user_id=? AND id=?",user,card.id());
+                for(var card:cards(user,snap.book().bookId(),snap.chapter().id())) if(replacedBy(card,snap)) db.update("DELETE FROM ai_note WHERE user_id=? AND id=?",user,card.id());
                 int position=0;
                 for(var group:groups) db.update("INSERT INTO ai_note(user_id,id,book_id,chapter_id,position,title,body,snapshot) VALUES (?,?,?,?,?,?,?,?)",user,"ai:"+UUID.randomUUID(),snap.book().bookId(),snap.chapter().id(),position++,group.title(),group.body(),json(group.snapshot()));
                 db.update("UPDATE ai_chapter SET state='ready',phase='complete',drafts='[]',error='',client_snapshot=NULL,client_deadline=NULL,updated_at=now() WHERE user_id=? AND book_id=? AND chapter_id=? AND job_id=?",user,snap.book().bookId(),snap.chapter().id(),job);

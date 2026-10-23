@@ -107,7 +107,7 @@ export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigure
     setAiBusy(true); setAiError('');
     const controller = new AbortController(); browserAi.current = controller;
     try {
-      const result = await exclusive(() => startChapterAi({ previewId: preview.previewId, bookId: book.bookId, chapterId: target, replaceConfirmed: true, deepThinking: aiThinkingControl && deepThinking }, request, fresh => {
+      const result = await exclusive(() => startChapterAi({ previewId: preview.previewId, bookId: book.bookId, chapterId: target, replaceConfirmed: replace, deepThinking: aiThinkingControl && deepThinking }, request, fresh => {
         if (alive.current && activeChapter.current === target) {
           setPreview(fresh);
           setSelected(old => new Set([...old].filter(id => fresh.notes.some(n => n.id === id && n.status === 'ready'))));
@@ -382,8 +382,8 @@ export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigure
             {aiChapter && (aiChapter.notes.length > 0 || aiRunning || aiChapter.state === 'failed') ? <div className="chapter-view-switch" role="group" aria-label="笔记视图">
               <button type="button" aria-pressed={!aiView} disabled={busy} onClick={() => changeAiView(false)}>原始笔记</button>
               <div className={`chapter-ai-view${aiView ? ' is-active' : ''}`}>
-                <button type="button" aria-pressed={aiView} disabled={busy} onClick={() => changeAiView(true)}><Sparkles size={14} aria-hidden="true" />AI 整理{aiRunning && <span className="chapter-running-dot" aria-label="正在整理" />}</button>
-                {aiView && aiChapter.state === 'ready' && <Tooltip label="重新生成"><button type="button" className="chapter-regenerate" aria-label="重新生成" disabled={busy} onClick={() => void startAi(true)}><RefreshCw size={14} aria-hidden="true" /></button></Tooltip>}
+                <button type="button" aria-pressed={aiView} disabled={busy} onClick={() => void startAi()}><Sparkles size={14} aria-hidden="true" />AI 整理本章{aiRunning && <span className="chapter-running-dot" aria-label="正在整理" />}</button>
+                {aiView && aiChapter.state === 'ready' && aiVisible.some(note => note.status === 'ready') && <Tooltip label="重新生成"><button type="button" className="chapter-regenerate" aria-label="重新生成" disabled={busy} onClick={() => void startAi(true)}><RefreshCw size={14} aria-hidden="true" /></button></Tooltip>}
               </div>
             </div> : <>
               {aiThinkingControl && <select className="ai-mode-select" aria-label="整理模式" value={deepThinking ? 'deep' : 'fast'} disabled={busy} onChange={e => setDeepThinking(e.target.value === 'deep')}><option value="fast">快速整理</option><option value="deep">深度思考</option></select>}

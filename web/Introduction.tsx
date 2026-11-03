@@ -3,7 +3,8 @@ import { ArrowRight } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle.tsx';
 import './introduction.css';
 
-const base = import.meta.env.BASE_URL;
+const base = import.meta.env.STATIC_BASE_URL;
+const appBase = import.meta.env.BASE_URL;
 
 export function Introduction() {
   useEffect(() => {
@@ -15,12 +16,12 @@ export function Introduction() {
   return <div className="introduction">
     <a className="intro-skip" href="#intro-article">跳到正文</a>
     <header className="intro-nav">
-      <a className="brand intro-brand" href={base} aria-label="拾墨首页">
+      <a className="brand intro-brand" href={appBase} aria-label="拾墨首页">
         <img src={`${base}assets/brand/shimo-logo.png`} width="40" height="40" alt="" />
         <span>拾墨</span>
       </a>
       <nav aria-label="页面导航">
-        <a href={base}>打开拾墨 <ArrowRight size={15} aria-hidden="true" /></a>
+        <a href={appBase}>打开拾墨 <ArrowRight size={15} aria-hidden="true" /></a>
         <ThemeToggle />
       </nav>
     </header>
@@ -132,7 +133,7 @@ export function Introduction() {
           <img src={`${base}assets/brand/shimo-logo.png`} width="64" height="64" alt="" loading="lazy" />
           <h2>从一条想再读的划线开始</h2>
           <p>如果你也想把阅读和日常的想法放在一起，<br className="intro-desktop-break" />欢迎来试试拾墨。</p>
-          <a className="primary intro-cta" href={base}>去试试拾墨 <ArrowRight size={18} aria-hidden="true" /></a>
+          <a className="primary intro-cta" href={appBase}>去试试拾墨 <ArrowRight size={18} aria-hidden="true" /></a>
         </footer>
       </article>
     </main>

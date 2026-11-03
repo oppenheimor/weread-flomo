@@ -1,5 +1,25 @@
 # 拾墨服务器部署
 
+## 域名入口修复（2026-10-27）
+
+- 正式入口 `https://www.sparkden.cn/shimo` → 301 `/shimo/` → 200。此前www虚拟主机未配置shimo路由，前次验收仅覆盖IP入口，现已补齐；IP入口仍保留。
+- www Nginx提供相同独立前端与CSP、反代同源API。后端APP_PUBLIC_ORIGIN暂保持旧IP，网关只对来自精确 `https://www.sparkden.cn` 的Origin做旧IP归一化，其他显式Origin一律拒绝，缺失值不补造；保留后端CSRF校验，未开启宽泛CORS。未来修改后端Origin必须同步更新映射。
+- 浏览器登录页面/图标正常、会话请求为www同源；有效CSRF+空账号登录返回凭据错误401，缺CSRF/恶意或null来源403，匿名私有API401。未验证真实账号密码登录；IP和www会话Cookie隔离，需要在域名重新登录。
+- 后端未重启、首页与TOS正常。配置在运维仓库 `nginx/sparkden.conf`，回归 `scripts/check-shimo-www.sh`。回滚恢复 `/srv/backups/sparkden-shimo-before-20261026/sparkden.conf` 后 nginx -t/reload（目录名沿用26，实际27日备份）。
+
+## 当前前端：CDN 独立发布（2026-10-26 17:58）
+
+- 前端 `cdn-20261026`，后端仍为下节的 `weread-flomo:20261023-145432-b8230af`，没有重启或数据库变更。源码基于 HEAD 加本次5个文件的CDN补丁，排除未跟踪文章、草稿与.env。
+- 构建：`APP_BASE_PATH=/shimo/ STATIC_ASSET_BASE=https://static.sparkden.cn/shimo/releases/cdn-20261026/ npm run build`；验收：`python3 scripts/check-cdn-build.py dist`。19项前端测试、CDN构建、未设置STATIC_ASSET_BASE的同源构建通过。
+- `BASE_URL`仅用于页面/API路由；`STATIC_BASE_URL`用于公开图片，Vite renderBuiltUrl处理编译资源与HTML/CSS中的公开URL。theme-init.js保持同源。
+- Nginx公开HTML入口指向 `/srv/www/shimo-frontend/current` → `releases/cdn-20261026`；CDN源站仅静态目录 `/srv/www/shimo-static/shimo/releases/cdn-20261026/assets`。CSP允许CDN脚本/样式/字体/图片，不开放CDN API连接。Nginx配置记录在相邻运维仓库 `nginx/shimo-ip.conf` 与 `nginx/static.sparkden.conf`。
+- **后续部署必须同步更新独立前端，不能仅替换jar镜像**：为每次前端构建选择新版本目录，上传dist/assets（打包使用 `COPYFILE_DISABLE=1 tar --no-xattrs`，避免AppleDouble元数据），先验证CDN资源，再发布对应index.html并切换current；保留旧版资源。或恢复备份Nginx配置，撤销独立HTML location，恢复jar内前端。不要覆盖已有版本目录。
+- CDN JS `index-D6Ju5qzH.js` SHA256 `ea495c7d88e53f554817d3baf7d8bc44708c430d75d32e9e7b4742252fde9eed`，本地与CDN下载一致。259条HTML/CSS资源引用存在性检查通过。
+- 浏览器登录页、介绍页、无效分享页与禁用缓存重测正常；图片/字体由CDN加载，会话仍请求同源 `/shimo/api/auth/session`。HTML/API no-store、私有books匿名401，CDN HTML/API404/no-store。三个服务healthy。未执行真实登录后同步/AI验收。
+- 首次浏览器白屏后立即回滚，独立预览路径和无缓存复测成功后再次切换；首次原因未确证。预览配置未留在正式配置中。
+- 回滚：`sudo cp /srv/backups/shimo-cdn-before-20261026/shimo-ip.conf /srv/infra/nginx/conf.d/shimo-ip.conf && sudo docker exec edge-nginx nginx -t && sudo docker exec edge-nginx nginx -s reload`。恢复jar内旧同源前端；不恢复数据库、不删除新CDN资源。
+- CDN每天累计>1GB下线1天，80%告警；有监控/处置延迟，不是费用硬上限，无自动同源fallback。static域名证书到期北京时间2027-01-26 07:59:59，续签后须更新CDN与源站两处。
+
 ## 当前部署：增量整理与阅读交互优化（2026-10-23）
 
 - 功能提交 `b8230af`，镜像 `weread-flomo:20261023-145432-b8230af`，容器 healthy。由已推送提交的独立目录构建，不含文章图片和未跟踪草稿。

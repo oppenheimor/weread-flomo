@@ -5,8 +5,23 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const base = env.APP_BASE_PATH || '/';
   if (!/^\/(?:[a-zA-Z0-9_-]+\/)*$/.test(base)) throw new Error('APP_BASE_PATH 必须是以 / 开始和结束的路径');
+  const staticBase = env.STATIC_ASSET_BASE || base;
+  if (env.STATIC_ASSET_BASE) {
+    const url = new URL(staticBase);
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || !url.pathname.endsWith('/')) {
+      throw new Error('STATIC_ASSET_BASE 必须是以 / 结尾、不含凭证、查询参数或片段的 HTTPS URL');
+    }
+  }
   return {
     base,
+    define: { 'import.meta.env.STATIC_BASE_URL': JSON.stringify(staticBase) },
+    experimental: {
+      renderBuiltUrl(filename: string) {
+        // Keep theme-init and all application/API routes same-origin.
+        if (env.STATIC_ASSET_BASE && filename.startsWith('assets/')) return `${staticBase}${filename}`;
+        return undefined;
+      },
+    },
     plugins: [react()],
     server: {
       host: '127.0.0.1',

@@ -57,7 +57,7 @@ export function Auth() {
     <div className="login-theme"><ThemeToggle /></div>
     <div className="login-corner" aria-hidden="true" />
     <section className="login-page" aria-labelledby="login-title">
-    <h1 id="login-title" className="brand"><img src={`${import.meta.env.BASE_URL}assets/brand/shimo-logo.png`} width="64" height="64" alt="" draggable={false} /><span>拾墨</span></h1>
+    <h1 id="login-title" className="brand"><img src={`${import.meta.env.STATIC_BASE_URL}assets/brand/shimo-logo.png`} width="64" height="64" alt="" draggable={false} /><span>拾墨</span></h1>
     <p className="hint">拾起阅读片段，把微信读书笔记整理进 flomo。</p>
     {error && <div className="notice error" role="alert">{error}</div>}
     {notice && <p className="hint success-text" role="status">{notice}</p>}

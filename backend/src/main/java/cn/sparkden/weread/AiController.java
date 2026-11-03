@@ -30,6 +30,7 @@ public class AiController {
         return Map.of("ok",true);
     }
     @GetMapping("/chapters") public List<Models.Chapter> chapters(Principal principal,@RequestParam String bookId) { return ai.chapters(user(principal),bookId); }
+    @GetMapping("/chapter-summaries") public List<ChapterSummary> chapterSummaries(Principal principal,@RequestParam String bookId) { return ai.chapterSummaries(user(principal),bookId); }
     @GetMapping("/chapter") public ChapterState chapter(Principal principal,@RequestParam String bookId,@RequestParam String chapterId) { return ai.state(user(principal),bookId,chapterId); }
     @PostMapping("/start") public Object start(Principal principal,@RequestBody Start body) { return ai.start(user(principal),body); }
     @PostMapping("/browser/progress") public ChapterState browserProgress(Principal principal,@RequestBody BrowserResult body) { return ai.browserResult(user(principal),body,true); }

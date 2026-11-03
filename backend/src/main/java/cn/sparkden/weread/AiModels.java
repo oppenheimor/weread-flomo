@@ -20,6 +20,7 @@ public final class AiModels {
     public record Card(String id,String title,String body,Snapshot snapshot,String status,boolean edited,int version) {}
     public record Progress(String phase,Long startedAt,int sourceCount,int outputChars,String summary) {}
     public record Draft(String id,String kind,String title,String body,String quote,String thought) {}
+    public record ChapterSummary(Chapter chapter,String state,boolean pending) {}
     public record ChapterState(String state,String error,List<Card> notes,Progress progress,List<Draft> drafts) {}
     public record Start(String previewId,String chapterId,boolean replaceConfirmed,boolean deepThinking) {
         public Start(String previewId,String chapterId,boolean replaceConfirmed) { this(previewId,chapterId,replaceConfirmed,false); }

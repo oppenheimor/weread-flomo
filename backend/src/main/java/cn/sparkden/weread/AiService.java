@@ -31,12 +31,43 @@ public class AiService {
         try { return mapper.readValue(value,mapper.getTypeFactory().constructCollectionType(List.class,Draft.class)); }
         catch(Exception e) { return List.of(); }
     }
+    // Resolve delivery status in the same query. A RowMapper must not borrow a
+    // second connection while the outer query still holds one (pool starvation).
+    private static final String CARD_STATUS_FROM="""
+        FROM ai_note n
+        LEFT JOIN delivery own ON own.user_id=n.user_id AND own.note_id=n.id
+        LEFT JOIN LATERAL (
+            SELECT CASE WHEN bool_or(d.status='uncertain') THEN 'uncertain'
+                        WHEN bool_or(d.status='sending') THEN 'sending'
+                        WHEN bool_or(d.status='sent') THEN 'sent' END AS status
+            FROM delivery_source s JOIN delivery d ON d.user_id=s.user_id AND d.note_id=s.note_id
+            WHERE s.user_id=n.user_id AND own.status IS NULL
+              AND jsonb_array_length(n.snapshot::jsonb->'notes')=1
+              AND s.source_key IN (SELECT jsonb_array_elements_text(n.snapshot::jsonb->'notes'->0->'sourceKeys'))
+        ) source ON true
+        """;
     private List<Card> cards(UUID user,String book,String chapter) {
-        return db.query("SELECT * FROM ai_note WHERE user_id=? AND book_id=? AND chapter_id=? ORDER BY created_at,position",(r,i) -> {
-            Snapshot snap=snapshot(r.getString("snapshot")); String id=r.getString("id"); String status=ledger.ownStatus(user,id);
-            if(snap.notes().size()==1 && status.equals("ready")) status=ledger.status(user,snap.notes().getFirst());
-            return new Card(id,r.getString("title"),r.getString("body"),snap,status,r.getBoolean("edited"),r.getInt("version"));
-        },user,book,chapter);
+        return db.query("SELECT n.*,COALESCE(own.status,source.status,'ready') AS effective_status "+CARD_STATUS_FROM+
+            " WHERE n.user_id=? AND n.book_id=? AND n.chapter_id=? ORDER BY n.created_at,n.position",(r,i) ->
+            new Card(r.getString("id"),r.getString("title"),r.getString("body"),snapshot(r.getString("snapshot")),r.getString("effective_status"),r.getBoolean("edited"),r.getInt("version")),user,book,chapter);
+    }
+    public List<ChapterSummary> chapterSummaries(UUID user,String book) {
+        var summaries=new LinkedHashMap<String,ChapterSummary>();
+        // Project only chapter metadata, never complete source snapshots or bodies.
+        var rows=db.query("SELECT n.chapter_id,(array_agg(n.snapshot::jsonb->'chapter' ORDER BY n.created_at))[1]::text AS chapter,"+
+            "bool_or(COALESCE(own.status,source.status,'ready')<>'sent') AS pending "+CARD_STATUS_FROM+
+            " WHERE n.user_id=? AND n.book_id=? GROUP BY n.chapter_id",(r,i) -> {
+                try { return new ChapterSummary(mapper.readValue(r.getString("chapter"),Models.Chapter.class),"idle",r.getBoolean("pending")); }
+                catch(Exception e) { throw new IllegalStateException("整理章节信息损坏",e); }
+            },user,book);
+        for(var row:rows) summaries.put(row.chapter().id(),row);
+        db.query("SELECT chapter_id,state FROM ai_chapter WHERE user_id=? AND book_id=?",r -> {
+            String id=r.getString("chapter_id"),state=r.getString("state");
+            var previous=summaries.get(id);
+            var chapter=previous==null?new Models.Chapter(id,"其他笔记",Integer.MAX_VALUE):previous.chapter();
+            summaries.put(id,new ChapterSummary(chapter,state,(previous!=null && previous.pending()) || Set.of("running","failed").contains(state)));
+        },user,book);
+        return summaries.values().stream().sorted(Comparator.comparingInt(s -> s.chapter().order())).toList();
     }
     public List<Models.Chapter> chapters(UUID user,String book) {
         return db.query("SELECT DISTINCT ON (chapter_id) snapshot FROM ai_note WHERE user_id=? AND book_id=? ORDER BY chapter_id,created_at",(r,i) -> snapshot(r.getString(1)).chapter(),user,book);

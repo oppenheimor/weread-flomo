@@ -60,6 +60,64 @@ class PostgresTest {
         for(int i=0;i<100;i++) { var state=service.state(user,"b","c"); if(!state.state().equals("running")) return state; Thread.sleep(20); }
         fail("AI job did not complete"); return null;
     }
+    @Test void chapterReadNeedsOnlyOneAvailableConnection() throws Exception {
+        UUID user=aiUser();
+        db.update("INSERT INTO ai_chapter(user_id,book_id,chapter_id,state) VALUES (?,'b','c','ready')",user);
+        db.update("INSERT INTO ai_note(user_id,id,book_id,chapter_id,position,title,body,snapshot) VALUES (?,'card','b','c',0,'title','body',?)",user,mapper.writeValueAsString(aiSnapshot()));
+        try(var pool=new com.zaxxer.hikari.HikariDataSource()) {
+            pool.setJdbcUrl(System.getenv("TEST_DATABASE_URL")); pool.setUsername("test"); pool.setPassword("test-only");
+            pool.setMaximumPoolSize(1); pool.setConnectionTimeout(300);
+            var single=new JdbcTemplate(pool);
+            var service=new AiService(single,mapper,null,new Ledger(single,org.mockito.Mockito.mock(InstanceGuard.class)),null,null,null,null,transactions);
+            try { assertEquals("ready",service.state(user,"b","c").notes().getFirst().status()); }
+            finally { service.stop(); }
+        }
+    }
+    @Test void chapterSummariesStaySmallAndUseTwoConnectionsForManyChapters() throws Exception {
+        UUID user=aiUser(),other=aiUser();
+        for(int i=0;i<100;i++) {
+            var chapter=new Chapter("c"+i,"Chapter "+i,i);
+            var snapshot=new AiModels.Snapshot(aiSnapshot().book(),chapter,aiSnapshot().notes());
+            db.update("INSERT INTO ai_chapter(user_id,book_id,chapter_id,state) VALUES (?,'b',?,'ready')",user,chapter.id());
+            db.update("INSERT INTO ai_note(user_id,id,book_id,chapter_id,position,title,body,snapshot) VALUES (?,?,'b',?,0,'private-title','private-body',?)",user,"card"+i,chapter.id(),mapper.writeValueAsString(snapshot));
+        }
+        var borrowed=new java.util.concurrent.atomic.AtomicInteger();
+        var counted=new org.springframework.jdbc.datasource.DelegatingDataSource(db.getDataSource()) {
+            @Override public java.sql.Connection getConnection() throws java.sql.SQLException { borrowed.incrementAndGet(); return super.getConnection(); }
+        };
+        var service=new AiService(new JdbcTemplate(counted),mapper,null,ledger,null,null,null,null,transactions);
+        try {
+            var result=service.chapterSummaries(user,"b");
+            assertEquals(100,result.size()); assertEquals(2,borrowed.get());
+            assertTrue(result.stream().allMatch(AiModels.ChapterSummary::pending));
+            String json=mapper.writeValueAsString(result);
+            assertTrue(json.length()<20000); assertFalse(json.contains("private-body")); assertFalse(json.contains("source-a")); assertFalse(json.contains("原文"));
+            assertTrue(service.chapterSummaries(other,"b").isEmpty());
+            assertTrue(service.chapterSummaries(user,"other-book").isEmpty());
+        } finally { service.stop(); }
+    }
+    @Test void summaryAndDetailAgreeOnSingleSourceInheritanceAndOwnDelivery() throws Exception {
+        UUID user=aiUser();
+        var chapter=aiSnapshot().chapter();
+        var source=new Note("source","b","highlight",List.of("sent-source","uncertain-source"),"private","private","",chapter,1L);
+        db.update("INSERT INTO ai_chapter(user_id,book_id,chapter_id,state) VALUES (?,'b','c','ready')",user);
+        var snap=new AiModels.Snapshot(aiSnapshot().book(),chapter,List.of(source));
+        db.update("INSERT INTO ai_note(user_id,id,book_id,chapter_id,position,title,body,snapshot) VALUES (?,'card','b','c',0,'title','body',?)",user,mapper.writeValueAsString(snap));
+        db.update("INSERT INTO delivery(user_id,note_id,content,status) VALUES (?,'sent-delivery','content','sent'),(?,'uncertain-delivery','content','uncertain')",user,user);
+        db.update("INSERT INTO delivery_source(user_id,source_key,note_id) VALUES (?,'sent-source','sent-delivery'),(?,'uncertain-source','uncertain-delivery')",user,user);
+        var service=fixtureAi(null,null);
+        try {
+            assertEquals("uncertain",service.state(user,"b","c").notes().getFirst().status()); assertTrue(service.chapterSummaries(user,"b").getFirst().pending());
+            db.update("UPDATE delivery SET status='sent' WHERE user_id=?",user);
+            assertEquals("sent",service.state(user,"b","c").notes().getFirst().status()); assertFalse(service.chapterSummaries(user,"b").getFirst().pending());
+            db.update("UPDATE ai_note SET snapshot=? WHERE user_id=?",mapper.writeValueAsString(aiSnapshot()),user);
+            assertEquals("ready",service.state(user,"b","c").notes().getFirst().status()); assertTrue(service.chapterSummaries(user,"b").getFirst().pending());
+            db.update("INSERT INTO delivery(user_id,note_id,content,status) VALUES (?,'card','content','sent')",user);
+            assertEquals("sent",service.state(user,"b","c").notes().getFirst().status()); assertFalse(service.chapterSummaries(user,"b").getFirst().pending());
+            db.update("INSERT INTO ai_chapter(user_id,book_id,chapter_id,state) VALUES (?,'b','running','running'),(?,'b','failed','failed')",user,user);
+            assertEquals(2,service.chapterSummaries(user,"b").stream().filter(AiModels.ChapterSummary::pending).count());
+        } finally { service.stop(); }
+    }
     @Test void bookPositionsPersistIndependentlyByAccountAndBook() {
         UUID user=aiUser(),other=aiUser();
         java.security.Principal owner=() -> "ai-"+user, stranger=() -> "ai-"+other;

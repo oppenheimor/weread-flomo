@@ -10,6 +10,7 @@ import { ChapterMenu } from './ChapterMenu.tsx';
 import { Tooltip } from './Tooltip.tsx';
 import { needsReview, pendingNotes } from './note-status.ts';
 import { chapterWorklist, completionTitle } from './chapter-worklist.ts';
+import { loadChapterSummaries, type ChapterWorkState } from './chapter-summaries.ts';
 import { useSyncProgress } from './useSyncProgress.ts';
 import { AiChapterNotes } from './AiCompanion.tsx';
 import { AiWriting } from './AiWriting.tsx';
@@ -65,11 +66,11 @@ export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigure
   useEffect(() => { setDeepThinking(false); }, [chapterId, aiThinkingControl]);
   const [aiChapter, setAiChapter] = useState<AiChapter | null>(null);
   const [savedChapters, setSavedChapters] = useState<PreviewNote['chapter'][]>([]);
-  const [organizedChapters, setOrganizedChapters] = useState<Record<string, AiChapter>>({});
+  const [organizedChapters, setOrganizedChapters] = useState<Record<string, ChapterWorkState>>({});
   const [justSyncedChapter, setJustSyncedChapter] = useState<string | null>(null);
   function updateAiChapter(value: AiChapter, id = activeChapter.current) {
     setAiChapter(value);
-    if (id !== null) setOrganizedChapters(old => ({ ...old, [id]: value }));
+    if (id !== null) setOrganizedChapters(old => ({ ...old, [id]: { state: value.state, pending: pendingNotes(value.notes).length > 0 } }));
   }
   const positionWrites = useRef<Promise<unknown>>(Promise.resolve());
   function rememberChapter(id: string) {
@@ -233,17 +234,15 @@ export function NotesPage({ book, sendingEnabled, aiThinkingControl, aiConfigure
   async function load() {
     setLoading(true); setLoadError(''); setOutcome(null); setActionError(''); setPhase('idle'); setJustSyncedChapter(null);
     try {
-      const [result, position, storedChapters] = await Promise.all([
+      const [result, position, summary] = await Promise.all([
         exclusive(() => request<PreviewResponse>('/api/preview', { bookId: book.bookId })),
         positionWrites.current.then(() => request<{ chapterId: string }>(`/api/book-position?bookId=${encodeURIComponent(book.bookId)}`)).catch(() => null),
-        request<PreviewNote['chapter'][]>(`/api/ai/chapters?bookId=${encodeURIComponent(book.bookId)}`),
+        loadChapterSummaries(book.bookId, request),
       ]);
       if (!alive.current) return;
-      const states = Object.fromEntries(await Promise.all(storedChapters.map(async c => [c.id, await request<AiChapter>(`/api/ai/chapter?bookId=${encodeURIComponent(book.bookId)}&chapterId=${encodeURIComponent(c.id)}`)] as const)));
-      if (!alive.current) return;
-      setPreview(result); setSavedChapters(storedChapters); setOrganizedChapters(states);
+      setPreview(result); setSavedChapters(summary.chapters); setOrganizedChapters(summary.states);
       setSelected(new Set()); setAiSelected([]); setAiChapter(null);
-      const work = chapterWorklist(result.notes, storedChapters, states);
+      const work = chapterWorklist(result.notes, summary.chapters, summary.states);
       const remembered = position?.chapterId;
       setChapterId(remembered && work.pendingIds.has(remembered) ? remembered : work.chapters[0]?.id ?? null);
       // Reload may keep the same chapter ID; refetch after clearing its old state.
